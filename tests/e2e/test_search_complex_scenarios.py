@@ -304,21 +304,19 @@ async def test_X7_7_empty_collection_result_skipped_no_crash():
         )
     )
 
-    cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _stub_http(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
+        return results_by_collection.get(collection, [])
 
-        await provider.get_pre_context("query")
-        from archon.ai.decomposer import TaskOutput
-        task_output = TaskOutput(scope="small", prompt="query")
-        task_output.selected_collections = None
-        result = await provider.search_and_prepare(task_output, "query")
+    mock_client.search = AsyncMock(side_effect=_mock_search)
+
+    cfg = _make_cfg(max_parallel=3, top_k_return=5)
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
+
+    await provider.get_pre_context("query")
+    from archon.ai.decomposer import TaskOutput
+    task_output = TaskOutput(scope="small", prompt="query")
+    task_output.selected_collections = None
+    result = await provider.search_and_prepare(task_output, "query")
 
     # col_empty returns nothing; col_ok has one result → result is not None
     assert result is not None

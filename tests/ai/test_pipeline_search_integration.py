@@ -189,7 +189,6 @@ def _make_pipeline_with_search(
         search_client.route = AsyncMock(return_value=None)
 
     real_provider = SearchContextProvider(
-        search_url=search_url + "/mcp",
         cfg=rag_config,
         search_client=search_client,
     )
@@ -223,16 +222,12 @@ async def test_pipeline_injects_rag_context_when_search_enabled() -> None:
     mock_search_client = MagicMock()
     mock_search_client.route = AsyncMock(return_value=route_resp)
 
-    pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
-    provider = pipeline._search_provider
-    assert provider is not None
-
-    # Mock the fan-out HTTP call on SearchContextProvider._http
-    fanout_resp = _mock_fanout_http_response(
-        [_make_search_result_json("chunk text", 0.9, "docs")]
+    mock_search_client.search = AsyncMock(
+        return_value=[_make_search_result_json("chunk text", 0.9, "docs")]
     )
-    with patch.object(provider._http, "post", new=AsyncMock(return_value=fanout_resp)):
-        await _collect_events(pipeline, "what is X?")
+    pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
+
+    await _collect_events(pipeline, "what is X?")
 
     # Verify inject_context was called with search_retrieval type
     decomposer.inject_context.assert_called_once()
@@ -271,12 +266,11 @@ async def test_pipeline_pre_context_passed_to_route_task() -> None:
         return _original_rt(prompt, search_pre_context=search_pre_context)
 
     decomposer.route_task = _capturing_rt
-
-    fanout_resp = _mock_fanout_http_response(
-        [_make_search_result_json("text", 0.8, "col1")]
+    mock_search_client.search = AsyncMock(
+        return_value=[_make_search_result_json("text", 0.8, "col1")]
     )
-    with patch.object(provider._http, "post", new=AsyncMock(return_value=fanout_resp)):
-        await _collect_events(pipeline, "what is X?")
+
+    await _collect_events(pipeline, "what is X?")
 
     # Verify search_pre_context was forwarded to route_task
     assert len(_captured_pre_context) == 1
@@ -313,24 +307,12 @@ async def test_pipeline_tier1_searches_all_routable_collections() -> None:
 
     searched_collections: list[str] = []
 
-    async def _mock_search(
-        http_client, url: str, collection: str, query: str, top_k: int
-    ) -> list:
-        from archon.ai.search_context_provider import SearchResult
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
         searched_collections.append(collection)
-        return [SearchResult(
-            doc_id=f"{collection}-doc",
-            chunk_id=f"{collection}-chunk",
-            text="text",
-            score=0.8,
-            source_path=f"/docs/{collection}.md",
-        )]
+        return [_make_search_result_json("text", 0.8, collection)]
 
-    with patch(
-        "archon.ai.search_context_provider._search_collection",
-        side_effect=_mock_search,
-    ):
-        await _collect_events(pipeline, "find X")
+    mock_search_client.search = AsyncMock(side_effect=_mock_search)
+    await _collect_events(pipeline, "find X")
 
     # Tier 1: all routable + all pinned must be searched — exact set
     assert set(searched_collections) == {"pinned", "col1", "col2"}
@@ -367,24 +349,12 @@ async def test_pipeline_tier3_uses_decomposer_selected_collections() -> None:
 
     searched_collections: list[str] = []
 
-    async def _mock_search(
-        http_client, url: str, collection: str, query: str, top_k: int
-    ) -> list:
-        from archon.ai.search_context_provider import SearchResult
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
         searched_collections.append(collection)
-        return [SearchResult(
-            doc_id=f"{collection}-doc",
-            chunk_id=f"{collection}-chunk",
-            text="text",
-            score=0.8,
-            source_path=f"/docs/{collection}.md",
-        )]
+        return [_make_search_result_json("text", 0.8, collection)]
 
-    with patch(
-        "archon.ai.search_context_provider._search_collection",
-        side_effect=_mock_search,
-    ):
-        await _collect_events(pipeline, "find X")
+    mock_search_client.search = AsyncMock(side_effect=_mock_search)
+    await _collect_events(pipeline, "find X")
 
     # col2 (decomposer-selected) and always (pinned) must be searched; col1/col3 must not
     assert "col2" in searched_collections
@@ -414,23 +384,11 @@ async def test_pipeline_rag_detail_string_includes_collection_names() -> None:
     provider = pipeline._search_provider
     assert provider is not None
 
-    async def _mock_search(
-        http_client, url: str, collection: str, query: str, top_k: int
-    ) -> list:
-        from archon.ai.search_context_provider import SearchResult
-        return [SearchResult(
-            doc_id=f"{collection}-doc",
-            chunk_id=f"{collection}-chunk",
-            text="relevant content",
-            score=0.9,
-            source_path=f"/docs/{collection}.md",
-        )]
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
+        return [_make_search_result_json("relevant content", 0.9, collection)]
 
-    with patch(
-        "archon.ai.search_context_provider._search_collection",
-        side_effect=_mock_search,
-    ):
-        await _collect_events(pipeline, "tell me about alpha and beta")
+    mock_search_client.search = AsyncMock(side_effect=_mock_search)
+    await _collect_events(pipeline, "tell me about alpha and beta")
 
     # inject_context must have been called
     decomposer.inject_context.assert_called_once()
@@ -546,15 +504,12 @@ async def test_pipeline_completes_normally_when_all_searches_fail() -> None:
 
     searched_collections: list[str] = []
 
-    async def _failing_search(http_client, url, collection, query, top_k):
+    async def _failing_search(collection: str, query: str, top_k: int) -> list[dict]:
         searched_collections.append(collection)
         raise RuntimeError(f"Search failed for {collection}")
 
-    with patch(
-        "archon.ai.search_context_provider._search_collection",
-        side_effect=_failing_search,
-    ):
-        events = await _collect_events(pipeline, "what is X?")
+    mock_search_client.search = AsyncMock(side_effect=_failing_search)
+    events = await _collect_events(pipeline, "what is X?")
 
     # Both collections must have been attempted
     assert set(searched_collections) == {"col1", "col2"}

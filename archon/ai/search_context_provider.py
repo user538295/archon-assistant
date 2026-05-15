@@ -1,6 +1,6 @@
 """SearchContextProvider — multi-collection search retrieval orchestrator (FEAT-038 Task 7.2).
 
-HTTP-based implementation. Uses SearchClient.route() for phase A and FastMCP JSON-RPC for phase B.
+Uses SearchClient for all search calls (Phase A: route(), Phase B: search()).
 
 Call chain in Pipeline.send():
 1. pre_context = search_provider.get_pre_context(query)   # Phase A: route() → RouteResponse
@@ -12,12 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import json
 import logging
 import time
 from typing import TYPE_CHECKING, Any
-
-import httpx
 
 from dataclasses import dataclass
 
@@ -36,62 +33,6 @@ if TYPE_CHECKING:
     from archon.config.loader import SearchConfig
 
 logger = logging.getLogger("archon")
-
-_SEARCH_TIMEOUT = 10.0
-
-
-async def _search_collection(
-    client: httpx.AsyncClient, search_url: str, collection: str, query: str, top_k: int
-) -> list[SearchResult]:
-    """Call the RAG server's search tool via JSON-RPC for one collection."""
-    payload = {
-        "jsonrpc": "2.0",
-        "method": "tools/call",
-        "params": {
-            "name": "search",
-            "arguments": {"query": query, "collection": collection},
-        },
-        "id": 1,
-    }
-    response = await client.post(search_url, json=payload)
-    response.raise_for_status()
-    data: dict[str, Any] = response.json()
-
-    if "error" in data:
-        logger.debug("_search_collection: JSON-RPC error for %s: %s", collection, data["error"])
-        return []
-
-    content_blocks: list[dict[str, Any]] = data.get("result", {}).get("content", [])
-    if not content_blocks:
-        return []
-
-    first_block = content_blocks[0]
-    if first_block.get("type") != "text":
-        return []
-
-    try:
-        raw_results: list[dict[str, Any]] = json.loads(first_block["text"])
-    except (json.JSONDecodeError, KeyError):
-        return []
-
-    results = []
-    for r in raw_results:
-        if "error" in r:
-            continue
-        try:
-            results.append(
-                SearchResult(
-                    doc_id=r["doc_id"],
-                    chunk_id=r["chunk_id"],
-                    text=r["text"],
-                    score=float(r["score"]),
-                    source_path=r["source_path"],
-                )
-            )
-        except (KeyError, TypeError, ValueError):
-            continue
-
-    return results[:top_k]
 
 
 def _normalize_and_merge(
@@ -142,24 +83,20 @@ class SearchContextProvider:
 
     def __init__(
         self,
-        search_url: str,
         cfg: "SearchConfig",
         search_client: "SearchClient | None" = None,
     ) -> None:
-        self._search_url = search_url
         self._cfg = cfg
         if search_client is None:
             from archon.ai.search_client import get_search_client
             search_client = get_search_client()
         self._search_client = search_client
-        # Shared HTTP client — avoids creating N connection pools during fan-out
-        self._http = httpx.AsyncClient(timeout=_SEARCH_TIMEOUT)
         # State set by get_pre_context(), consumed by search_and_prepare()
         self._route_response: "RouteResponse | None" = None
 
     async def close(self) -> None:
-        """Close the shared HTTP client."""
-        await self._http.aclose()
+        """No-op — search calls go through SearchClient which manages its own connection."""
+        pass
 
     async def __aenter__(self) -> "SearchContextProvider":
         return self
@@ -242,9 +179,8 @@ class SearchContextProvider:
 
         async def _bounded_search(collection: str) -> list[SearchResult]:
             async with semaphore:
-                return await _search_collection(
-                    self._http, self._search_url, collection, query, cfg.top_k_return
-                )
+                raw = await self._search_client.search(collection, query, cfg.top_k_return)
+                return [SearchResult(**r) for r in raw]
 
         tasks = [_bounded_search(col) for col in to_search]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)

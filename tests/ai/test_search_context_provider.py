@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,6 +30,17 @@ def _make_search_result(text: str, score: float, collection: str = "col") -> Sea
         score=score,
         source_path=f"/path/{collection}.md",
     )
+
+
+def _make_search_dict(text: str, score: float, collection: str = "col") -> dict:
+    """Return a raw dict as returned by SearchClient.search()."""
+    return {
+        "doc_id": f"{collection}-doc",
+        "chunk_id": f"{collection}-chunk",
+        "text": text,
+        "score": score,
+        "source_path": f"/path/{collection}.md",
+    }
 
 
 def _make_rag_config(
@@ -106,7 +116,7 @@ def test_search_context_provider_instantiates() -> None:
 
     cfg = _make_rag_config()
     client = _make_mock_client()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
     assert provider is not None
 
 
@@ -128,7 +138,7 @@ async def test_get_context_calls_route_then_fastmcp() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     call_order: list[str] = []
 
@@ -138,17 +148,17 @@ async def test_get_context_calls_route_then_fastmcp() -> None:
 
     client.route = AsyncMock(side_effect=_track_route)
 
-    async def _track_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _track_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         call_order.append(f"search:{collection}")
-        return [_make_search_result("text", 0.9, collection)]
+        return [_make_search_dict("text", 0.9, collection)]
 
     # Phase A
     pre = await provider.get_pre_context("query")
     assert pre is not None
 
     task_output = _make_task_output(selected_collections=None)
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_track_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_track_search)
+    await provider.search_and_prepare(task_output, "query")
 
     assert call_order[0] == "route"
     assert any(o.startswith("search:") for o in call_order)
@@ -168,19 +178,19 @@ async def test_get_context_preserves_pinned_names_from_route_state() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert "pinned1" in searched
     assert result is not None
@@ -199,7 +209,7 @@ async def test_get_context_preserves_tier1_behavior_from_route_state() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
@@ -207,12 +217,12 @@ async def test_get_context_preserves_tier1_behavior_from_route_state() -> None:
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     # Tier 1: all routable searched
     assert "col1" in searched
@@ -233,19 +243,19 @@ async def test_get_context_discards_hallucinated_collections_from_route_state() 
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "hallucinated"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    await provider.search_and_prepare(task_output, "query")
 
     assert "hallucinated" not in searched
     assert "col1" in searched
@@ -264,7 +274,7 @@ async def test_get_context_respects_max_parallel_and_top_k_return() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=2, top_k_return=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
@@ -272,13 +282,13 @@ async def test_get_context_respects_max_parallel_and_top_k_return() -> None:
     task_output = _make_task_output(selected_collections=["c1", "c2", "c3", "c4", "c5"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
         assert top_k == 3  # top_k_return respected
-        return [_make_search_result(f"text-{collection}", 0.8, collection)]
+        return [_make_search_dict(f"text-{collection}", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     # max_parallel_collections=2 caps selected routable
     assert len(searched) <= 2
@@ -294,7 +304,7 @@ async def test_get_context_search_disabled_returns_empty() -> None:
 
     cfg = _make_rag_config(enabled=False)
     client = _make_mock_client()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     pre = await provider.get_pre_context("query")
     assert pre is None
@@ -314,7 +324,7 @@ async def test_get_context_route_returns_none_returns_empty() -> None:
 
     client = _make_mock_client(route_response=None)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     pre = await provider.get_pre_context("query")
     assert pre is None
@@ -337,17 +347,16 @@ async def test_get_context_empty_routable_names_returns_empty() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
 
-    with patch("archon.ai.search_context_provider._search_collection") as mock_search:
-        result = await provider.search_and_prepare(task_output, "query")
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
-    mock_search.assert_not_called()
+    client.search.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -368,7 +377,7 @@ async def test_get_pre_context_returns_pre_context_from_route() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     result = await provider.get_pre_context("query")
     assert result == "<rag_collections>col1</rag_collections>"
@@ -386,21 +395,21 @@ async def test_tier1_skips_decomposer_searches_all_routable() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
-    results_col1 = [_make_search_result("chunk from col1", 0.9, "col1")]
-    results_col2 = [_make_search_result("chunk from col2", 0.7, "col2")]
+    results_col1 = [_make_search_dict("chunk from col1", 0.9, "col1")]
+    results_col2 = [_make_search_dict("chunk from col2", 0.7, "col2")]
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         if collection == "col1":
             return results_col1
         return results_col2
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, searched_names = result
@@ -420,19 +429,19 @@ async def test_tier1_cap_applies_to_routable_not_total() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=2)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert "pinned1" in searched
     routable_searched = [s for s in searched if s != "pinned1"]
@@ -451,19 +460,19 @@ async def test_search_and_prepare_caps_at_3_collections() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "col2", "col3", "col4"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    await provider.search_and_prepare(task_output, "query")
 
     assert len(searched) <= 3
 
@@ -475,7 +484,7 @@ async def test_search_and_prepare_returns_none_when_no_route_state() -> None:
 
     cfg = _make_rag_config()
     client = _make_mock_client()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
     task_output = _make_task_output(selected_collections=None)
 
     result = await provider.search_and_prepare(task_output, "query")
@@ -494,19 +503,19 @@ async def test_search_and_prepare_selected_empty_list_searches_pinned_only() -> 
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=[])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert searched == ["pinned1"]
     assert result is not None
@@ -524,14 +533,13 @@ async def test_search_and_prepare_empty_selected_no_pinned_returns_none() -> Non
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=[])
 
-    with patch("archon.ai.search_context_provider._search_collection"):
-        result = await provider.search_and_prepare(task_output, "query")
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -548,19 +556,19 @@ async def test_search_and_prepare_remaps_none_to_empty_list_when_decomposer_was_
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert searched == ["pinned1"]
     assert result is not None
@@ -578,19 +586,19 @@ async def test_pinned_collections_bypass_confidence_gate() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.9, collection)]
+        return [_make_search_dict("text", 0.9, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert "pinned1" in searched
     assert result is not None
@@ -608,19 +616,19 @@ async def test_pinned_only_search_when_router_selects_zero() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=[])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert searched == ["pinned1"]
     assert result is not None
@@ -638,19 +646,19 @@ async def test_pinned_and_selected_merged() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result(f"text from {collection}", 0.8, collection)]
+        return [_make_search_dict(f"text from {collection}", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert set(searched) == {"pinned1", "pinned2", "col1"}
     assert result is not None
@@ -668,19 +676,19 @@ async def test_pinned_counts_toward_max_parallel() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "col2", "col3"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    await provider.search_and_prepare(task_output, "query")
 
     routable_searched = [s for s in searched if not s.startswith("pinned")]
     assert len(routable_searched) <= 1
@@ -698,17 +706,17 @@ async def test_actual_searched_names_includes_pinned() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1"])
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
-        return [_make_search_result("text", 0.8, collection)]
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     _, _, actual_searched_names = result
@@ -728,19 +736,19 @@ async def test_pinned_exhausts_max_parallel_cap() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=2)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    await provider.search_and_prepare(task_output, "query")
 
     routable_searched = [s for s in searched if not s.startswith("pinned")]
     assert len(routable_searched) == 0
@@ -825,19 +833,19 @@ async def test_rag_parsing_filters_hallucinated_names() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "hallucinated"])
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    await provider.search_and_prepare(task_output, "query")
 
     assert "hallucinated" not in searched
     assert "col1" in searched
@@ -869,14 +877,13 @@ async def test_rag_skips_when_parsing_yields_zero_collections() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=[])
 
-    with patch("archon.ai.search_context_provider._search_collection"):
-        result = await provider.search_and_prepare(task_output, "query")
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -944,17 +951,17 @@ async def test_rag_skips_on_server_error() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1"])
 
-    async def _failing_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _failing_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         raise ConnectionError("server down")
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_failing_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_failing_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -971,19 +978,19 @@ async def test_rag_partial_search_failure_uses_remaining_results() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
 
-    async def _mixed_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mixed_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         if collection == "col1":
             raise ConnectionError("col1 down")
-        return [_make_search_result("from col2", 0.8, "col2")]
+        return [_make_search_dict("from col2", 0.8, "col2")]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mixed_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mixed_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, searched_names = result
@@ -1003,17 +1010,17 @@ async def test_search_and_prepare_all_collections_fail_returns_none() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
 
-    async def _all_fail(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _all_fail(collection: str, query: str, top_k: int) -> list[SearchResult]:
         raise RuntimeError("all down")
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_all_fail):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_all_fail)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -1035,7 +1042,7 @@ async def test_rag_parallel_search_bounded() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=2)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
@@ -1045,7 +1052,7 @@ async def test_rag_parallel_search_bounded() -> None:
     current_concurrent = 0
     lock = asyncio.Lock()
 
-    async def _bounded_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _bounded_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         nonlocal concurrent_peak, current_concurrent
         async with lock:
             current_concurrent += 1
@@ -1054,194 +1061,12 @@ async def test_rag_parallel_search_bounded() -> None:
         await asyncio.sleep(0.01)
         async with lock:
             current_concurrent -= 1
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_bounded_search):
-        await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_bounded_search)
+    await provider.search_and_prepare(task_output, "query")
 
     assert concurrent_peak <= 2
-
-
-# ──────────────────────────────────────────────────────────────────
-# _search_collection() unit tests
-# ──────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_search_collection_happy_path() -> None:
-    """_search_collection returns SearchResult list on successful response."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    results_data = [
-        {"doc_id": "d1", "chunk_id": "c1", "text": "hello", "score": 0.9, "source_path": "/f.md"}
-    ]
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={
-        "result": {"content": [{"type": "text", "text": json.dumps(results_data)}]}
-    })
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
-
-    assert len(results) == 1
-    assert results[0].text == "hello"
-    assert results[0].score == 0.9
-
-
-@pytest.mark.asyncio
-async def test_search_collection_jsonrpc_error_returns_empty() -> None:
-    """_search_collection returns [] on JSON-RPC error key."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={"error": {"code": -32600, "message": "bad"}})
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
-
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_search_collection_empty_content_returns_empty() -> None:
-    """_search_collection returns [] when content blocks are empty."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={"result": {"content": []}})
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
-
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_search_collection_malformed_json_text_returns_empty() -> None:
-    """_search_collection returns [] when text block contains invalid JSON."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={
-        "result": {"content": [{"type": "text", "text": "not json at all"}]}
-    })
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
-
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_search_collection_error_entries_skipped() -> None:
-    """_search_collection skips individual result entries that have an 'error' key."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    results_data = [
-        {"error": "not found"},
-        {"doc_id": "d1", "chunk_id": "c1", "text": "good", "score": 0.8, "source_path": "/f.md"},
-    ]
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={
-        "result": {"content": [{"type": "text", "text": json.dumps(results_data)}]}
-    })
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
-
-    assert len(results) == 1
-    assert results[0].text == "good"
-
-
-@pytest.mark.asyncio
-async def test_search_collection_top_k_slices_results() -> None:
-    """_search_collection respects the top_k limit."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    results_data = [
-        {"doc_id": f"d{i}", "chunk_id": f"c{i}", "text": f"t{i}", "score": 0.5, "source_path": "/f.md"}
-        for i in range(10)
-    ]
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={
-        "result": {"content": [{"type": "text", "text": json.dumps(results_data)}]}
-    })
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=3)
-
-    assert len(results) == 3
-
-
-@pytest.mark.asyncio
-async def test_search_collection_happy_path_asserts_jsonrpc_payload() -> None:
-    """_search_collection sends the correct JSON-RPC payload."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    url = "http://localhost:8282/mcp"
-    collection = "docs"
-    query = "how to configure"
-    top_k = 5
-
-    results_data = [
-        {"doc_id": "d1", "chunk_id": "c1", "text": "hello", "score": 0.9, "source_path": "/f.md"}
-    ]
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={
-        "result": {"content": [{"type": "text", "text": json.dumps(results_data)}]}
-    })
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    await _search_collection(mock_client, url, collection, query, top_k)
-
-    call_args = mock_client.post.call_args
-    # post(url, json=payload) — keyword arg
-    posted_payload = call_args[1].get("json") or (call_args[0][1] if len(call_args[0]) > 1 else call_args[1]["json"])
-    assert posted_payload["jsonrpc"] == "2.0"
-    assert posted_payload["method"] == "tools/call"
-    assert posted_payload["params"]["name"] == "search"
-    assert posted_payload["params"]["arguments"]["query"] == query
-    assert posted_payload["params"]["arguments"]["collection"] == collection
-
-
-@pytest.mark.asyncio
-async def test_search_collection_http_error_propagates() -> None:
-    """_search_collection propagates HTTPStatusError from raise_for_status."""
-    from archon.ai.search_context_provider import _search_collection
-    import httpx
-
-    mock_client = AsyncMock()
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status = MagicMock(
-        side_effect=httpx.HTTPStatusError(
-            "HTTP 500", request=MagicMock(), response=MagicMock()
-        )
-    )
-    mock_client.post = AsyncMock(return_value=mock_resp)
-
-    with pytest.raises(httpx.HTTPStatusError):
-        await _search_collection(mock_client, "http://localhost:8282/mcp", "docs", "query", 5)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1297,7 +1122,7 @@ def test_search_context_provider_uses_singleton_when_no_client_passed() -> None:
     cfg = _make_rag_config()
 
     with patch.object(sc_module, "get_search_client", return_value=mock_client):
-        provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
+        provider = SearchContextProvider(cfg=cfg)
 
     assert provider is not None
 
@@ -1314,19 +1139,19 @@ async def test_per_collection_search_timeout_excluded_from_results() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["fast", "slow"])
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         if collection == "slow":
             raise asyncio.TimeoutError()
-        return [_make_search_result("fast result", 0.9, collection)]
+        return [_make_search_dict("fast result", 0.9, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, searched_names = result
@@ -1348,25 +1173,23 @@ def test_a10_27_no_client_calls_get_search_client() -> None:
     cfg = _make_rag_config()
 
     with patch.object(sc_module, "get_search_client", return_value=mock_client) as mock_get:
-        provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg)
+        provider = SearchContextProvider(cfg=cfg)
 
     mock_get.assert_called_once()
     assert provider._search_client is mock_client
 
 
 @pytest.mark.asyncio
-async def test_a10_28_context_manager_calls_aclose() -> None:
-    """A10.28: Using SearchContextProvider as async context manager calls _http.aclose() on exit."""
+async def test_a10_28_context_manager_does_not_raise() -> None:
+    """A10.28: Using SearchContextProvider as async context manager exits cleanly (close is no-op)."""
     from archon.ai.search_context_provider import SearchContextProvider
 
     cfg = _make_rag_config()
     client = _make_mock_client()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
-    with patch.object(provider._http, "aclose", new_callable=AsyncMock) as mock_close:
-        async with provider:
-            pass
-        mock_close.assert_called_once()
+    async with provider:
+        pass  # should not raise
 
 
 @pytest.mark.asyncio
@@ -1383,7 +1206,7 @@ async def test_a10_29_successful_route_logs_elapsed_ms(caplog: Any) -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config()
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     with caplog.at_level(logging.DEBUG, logger="archon"):
         await provider.get_pre_context("my query")
@@ -1407,7 +1230,7 @@ async def test_a10_30_decomposer_invoked_none_selected_searches_pinned_only() ->
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
@@ -1415,12 +1238,12 @@ async def test_a10_30_decomposer_invoked_none_selected_searches_pinned_only() ->
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert searched == ["pinned1"]
     assert result is not None
@@ -1438,42 +1261,23 @@ async def test_a10_31_five_pinned_max_parallel_3_all_searched() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
         searched.append(collection)
-        return [_make_search_result("text", 0.8, collection)]
+        return [_make_search_dict("text", 0.8, collection)]
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "query")
 
     # All 5 pinned must be searched — semaphore throttles concurrency, not total count
     assert set(searched) == {"p1", "p2", "p3", "p4", "p5"}
     assert result is not None
-
-
-@pytest.mark.asyncio
-async def test_a10_32_non_text_content_block_returns_empty() -> None:
-    """A10.32: Non-text content block in response → _search_collection returns []."""
-    from archon.ai.search_context_provider import _search_collection
-    from unittest.mock import AsyncMock, MagicMock
-
-    response = MagicMock()
-    response.raise_for_status = MagicMock()
-    response.json = MagicMock(return_value={
-        "result": {"content": [{"type": "image", "data": "base64stuff"}]}
-    })
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=response)
-    results = await _search_collection(mock_client, "http://localhost:9999", "col", "query", top_k=5)
-
-    assert results == []
 
 
 def test_a10_33_top_k_truncates_merged_results() -> None:
@@ -1558,18 +1362,18 @@ async def test_a10_39_all_tasks_raise_value_error_returns_none(caplog: Any) -> N
     )
     client = _make_mock_client(route_response=route_resp)
     cfg = _make_rag_config(max_parallel=3)
-    provider = SearchContextProvider(search_url="http://localhost:8282/mcp", cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
 
-    async def _raise_value_error(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _raise_value_error(collection: str, query: str, top_k: int) -> list[SearchResult]:
         raise ValueError(f"bad collection: {collection}")
 
+    client.search = AsyncMock(side_effect=_raise_value_error)
     with caplog.at_level(logging.DEBUG, logger="archon"):
-        with patch("archon.ai.search_context_provider._search_collection", side_effect=_raise_value_error):
-            result = await provider.search_and_prepare(task_output, "query")
+        result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
     # Each failing collection should produce a DEBUG log entry
@@ -1578,3 +1382,119 @@ async def test_a10_39_all_tasks_raise_value_error_returns_none(caplog: Any) -> N
     col2_entries = [m for m in debug_messages if "col2" in m]
     assert len(col1_entries) >= 1, f"No DEBUG log mentioning 'col1'. All debug: {debug_messages}"
     assert len(col2_entries) >= 1, f"No DEBUG log mentioning 'col2'. All debug: {debug_messages}"
+
+
+# ──────────────────────────────────────────────────────────────────
+# Task 5.1 — SearchClient migration tests (TDD first)
+# ──────────────────────────────────────────────────────────────────
+
+
+def test_no_raw_http_client() -> None:
+    """SearchContextProvider instance must have no _http attribute after migration."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    cfg = _make_rag_config()
+    client = _make_mock_client()
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
+    assert not hasattr(provider, "_http")
+
+
+@pytest.mark.asyncio
+async def test_bounded_search_uses_search_client() -> None:
+    """search_and_prepare() calls mock_search_client.search() not _search_collection."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    route_resp = _make_route_response(
+        pre_context=None,
+        pinned_names=[],
+        routable_names=["col1"],
+        decomposer_invoked=True,
+    )
+    client = _make_mock_client(route_response=route_resp)
+    client.search = AsyncMock(return_value=[
+        {"doc_id": "d1", "chunk_id": "c1", "text": "hello", "score": 0.9, "source_path": "/f.md"}
+    ])
+    cfg = _make_rag_config()
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
+
+    await provider.get_pre_context("test query")
+    task_output = _make_task_output(selected_collections=["col1"])
+    result = await provider.search_and_prepare(task_output, "test query")
+
+    client.search.assert_called_once_with("col1", "test query", cfg.top_k_return)
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_close_is_noop() -> None:
+    """await provider.close() must not raise."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    cfg = _make_rag_config()
+    client = _make_mock_client()
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
+
+    # Must not raise
+    await provider.close()
+
+
+def test_pipeline_search_url_still_passed_to_decomposer() -> None:
+    """Pipeline still passes search_url to Decomposer; SearchContextProvider does NOT receive it."""
+    from unittest.mock import call, patch, MagicMock
+
+    with patch("archon.ai.pipeline.Classifier"), \
+         patch("archon.ai.pipeline.Decomposer") as mock_decomposer_cls, \
+         patch("archon.ai.pipeline.SearchContextProvider") as mock_scp_cls:
+
+        mock_decomposer_cls.return_value = MagicMock()
+        mock_scp_cls.return_value = MagicMock()
+
+        from archon.ai.pipeline import Pipeline
+        search_url = "http://localhost:8765"
+        rag_config = _make_rag_config()
+
+        Pipeline(
+            cwd="/tmp",
+            search_url=search_url,
+            rag_config=rag_config,
+        )
+
+    # Decomposer must receive search_url
+    decomposer_kwargs = mock_decomposer_cls.call_args[1]
+    assert decomposer_kwargs.get("search_url") == search_url
+
+    # SearchContextProvider must NOT receive search_url
+    scp_kwargs = mock_scp_cls.call_args[1]
+    assert "search_url" not in scp_kwargs
+
+
+@pytest.mark.asyncio
+async def test_search_and_prepare_mixed_results() -> None:
+    """One collection returns [], another returns results; merged output contains only non-empty results."""
+    from archon.ai.search_context_provider import SearchContextProvider
+
+    route_resp = _make_route_response(
+        pre_context=None,
+        pinned_names=[],
+        routable_names=["empty_col", "good_col"],
+        decomposer_invoked=True,
+    )
+    client = _make_mock_client(route_response=route_resp)
+
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
+        if collection == "empty_col":
+            return []
+        return [{"doc_id": "d1", "chunk_id": "c1", "text": "good result", "score": 0.9, "source_path": "/f.md"}]
+
+    client.search = AsyncMock(side_effect=_mock_search)
+    cfg = _make_rag_config()
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
+
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=["empty_col", "good_col"])
+    result = await provider.search_and_prepare(task_output, "query")
+
+    assert result is not None
+    rag_text, chunk_count, searched_names = result
+    assert chunk_count == 1
+    assert "good result" in rag_text

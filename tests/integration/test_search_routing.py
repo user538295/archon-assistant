@@ -3,12 +3,12 @@
 These tests exercise the complete chain:
   query → SearchContextProvider → SearchClient.route() → phase B fan-out search → merge
 
-The HTTP boundary (SearchClient.route and _search_collection) is mocked.
+The HTTP boundary (SearchClient.route and SearchClient.search) is mocked.
 """
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -82,6 +82,17 @@ def _make_search_result(collection: str, idx: int = 0) -> SearchResult:
     )
 
 
+def _make_search_dict(collection: str, idx: int = 0) -> dict:
+    """Return a raw dict as returned by SearchClient.search()."""
+    return {
+        "doc_id": f"{collection}-doc-{idx}",
+        "chunk_id": f"{collection}-chunk-{idx}",
+        "text": f"Text from {collection} chunk {idx}",
+        "score": 0.9 - idx * 0.1,
+        "source_path": f"/path/{collection}/doc{idx}.md",
+    }
+
+
 def _make_mock_client(route_response: Any) -> MagicMock:
     client = MagicMock()
     client.route = AsyncMock(return_value=route_response)
@@ -110,7 +121,7 @@ async def test_full_rag_routing_chain() -> None:
     )
     client = _make_mock_client(route_resp)
     cfg = _make_rag_config(max_parallel=3, top_k_return=5)
-    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     # Phase A: get_pre_context → route() → returns pre_context block
     pre_context = await provider.get_pre_context("test query")
@@ -124,15 +135,15 @@ async def test_full_rag_routing_chain() -> None:
     task_output = _make_task_output(selected_collections=selected)
 
     search_results = {
-        name: [_make_search_result(name, 0), _make_search_result(name, 1)]
+        name: [_make_search_dict(name, 0), _make_search_dict(name, 1)]
         for name in routable
     }
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
         return search_results.get(collection, [])
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "test query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "test query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -165,7 +176,7 @@ async def test_full_rag_routing_graceful_degradation() -> None:
     """
     cfg = _make_rag_config(max_parallel=3)
     client = _make_mock_client(None)  # route() returns None
-    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     # Phase A: route() failed → None
     pre_context = await provider.get_pre_context("test query")
@@ -198,7 +209,7 @@ async def test_full_rag_routing_tier1_chain() -> None:
     )
     client = _make_mock_client(route_resp)
     cfg = _make_rag_config(max_parallel=3, top_k_return=5)
-    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     # Phase A: Tier 1 → get_pre_context returns None (no decomposer)
     pre_context = await provider.get_pre_context("test query")
@@ -208,15 +219,15 @@ async def test_full_rag_routing_tier1_chain() -> None:
     task_output = _make_task_output(selected_collections=None)
 
     search_results = {
-        name: [_make_search_result(name, 0), _make_search_result(name, 1)]
+        name: [_make_search_dict(name, 0), _make_search_dict(name, 1)]
         for name in routable
     }
 
-    async def _mock_search(client: Any, url: str, collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
         return search_results.get(collection, [])
 
-    with patch("archon.ai.search_context_provider._search_collection", side_effect=_mock_search):
-        result = await provider.search_and_prepare(task_output, "test query")
+    client.search = AsyncMock(side_effect=_mock_search)
+    result = await provider.search_and_prepare(task_output, "test query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -287,7 +298,7 @@ async def test_full_rag_routing_sentinel_remap() -> None:
     )
     client = _make_mock_client(route_resp)
     cfg = _make_rag_config(max_parallel=3, top_k_return=5, pinned_collections=[])
-    provider = SearchContextProvider(search_url=_SEARCH_URL, cfg=cfg, search_client=client)
+    provider = SearchContextProvider(cfg=cfg, search_client=client)
 
     # Phase A: Tier 3 → decomposer_invoked=True
     pre_context = await provider.get_pre_context("test query")
@@ -301,9 +312,8 @@ async def test_full_rag_routing_sentinel_remap() -> None:
     # No pinned collections + selected_collections=[] → to_search=[] → None
     task_output = _make_task_output(selected_collections=None)
 
-    with patch("archon.ai.search_context_provider._search_collection") as mock_search:
-        result = await provider.search_and_prepare(task_output, "test query")
+    result = await provider.search_and_prepare(task_output, "test query")
 
     # No pinned + selected remapped to [] → nothing to search → None
     assert result is None
-    mock_search.assert_not_called()
+    client.search.assert_not_called()

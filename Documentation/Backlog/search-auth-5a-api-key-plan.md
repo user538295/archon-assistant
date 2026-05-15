@@ -55,7 +55,7 @@ Every archon-search API call except `GET /health` requires a valid `ARCHON_SEARC
 - [ ] `ARCHON_SEARCH_API_KEY` env var overrides file; empty string treated as absent
 - [ ] `SearchClient` injects key automatically on every request; lazy load on first use
 - [ ] `SearchClient` self-heals 401 (clears cache, re-reads key file, retries); second 401 → ERROR log → `None`
-- [ ] `search_context_provider.py` uses `SearchClient.search()` with no raw httpx client
+- [x] `search_context_provider.py` uses `SearchClient.search()` with no raw httpx client
 - [ ] `doctor.py` uses `SearchClient.list_collections()` + `collection_info()` with no raw httpx client
 - [ ] `archon doctor` reports key file missing/wrong-permissions as failure
 - [ ] `archon doctor` reports 401 on `GET /status` as actionable failure
@@ -487,8 +487,8 @@ archon doctor → SearchClient.status()  [auth injected]
 > **Releasable**: after both tasks — all search calls go through `SearchClient`; 401s are handled transparently.
 
 #### Task 5.1 — Fix `search_context_provider.py`
-- [ ] **File**: `archon/ai/search_context_provider.py`
-- [ ] **File**: `tests/ai/test_search_context_provider.py`
+- [x] **File**: `archon/ai/search_context_provider.py`
+- [x] **File**: `tests/ai/test_search_context_provider.py`
 - **Depends on**: Task 4.3
 - **Description**:
   - **Remove**: `_search_collection()` module-level function (entire function, lines ~43–94).

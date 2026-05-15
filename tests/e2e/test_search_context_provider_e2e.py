@@ -1,22 +1,18 @@
-"""E2E tests for SearchContextProvider — real HTTP transport via ASGITransport (FEAT-038 Task 5.1).
+"""E2E tests for SearchContextProvider — SearchClient.search() path (FEAT-038 Task 7.2 → Task 5.1).
 
-Phase A (route) uses patched_search_client → real archon-search FastAPI app via ASGITransport.
-Phase B (search) uses a stub FastAPI app returning well-formed JSON-RPC MCP tool responses.
+All tests use mock_client.search() — the old JSON-RPC / _http path has been removed.
 
 H2.1–H2.12: happy-path contract tests.
 """
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
 import pytest_asyncio
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 
 from archon.ai.decomposer import TaskOutput
 from archon.ai.search_context_provider import SearchContextProvider
@@ -78,19 +74,6 @@ def _make_mock_client(route_response: Any = None) -> MagicMock:
     return client
 
 
-def _jsonrpc_result(results: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build a well-formed JSON-RPC 2.0 MCP tool-call response."""
-    return {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "result": {
-            "content": [
-                {"type": "text", "text": json.dumps(results)}
-            ]
-        },
-    }
-
-
 def _search_result_dict(
     *,
     doc_id: str = "doc1",
@@ -108,36 +91,11 @@ def _search_result_dict(
     }
 
 
-# ---------------------------------------------------------------------------
-# Stub Phase B FastAPI app
-# ---------------------------------------------------------------------------
-
-
-def _make_stub_search_app(
-    results_by_collection: dict[str, list[dict[str, Any]]] | None = None,
-) -> FastAPI:
-    """Return a FastAPI stub that handles JSON-RPC tools/call for Phase B search.
-
-    The stub matches on the ``collection`` argument in the payload and returns
-    the configured results (or an empty list for unknown collections).
-    """
-    app = FastAPI()
-    _results = results_by_collection or {}
-
-    @app.post("/mcp")
-    async def handle_mcp(request: Request) -> JSONResponse:
-        body = await request.json()
-        collection = body.get("params", {}).get("arguments", {}).get("collection", "")
-        results = _results.get(collection, [])
-        return JSONResponse(content=_jsonrpc_result(results))
-
-    return app
-
-
-def _make_stub_http_client(stub_app: FastAPI) -> httpx.AsyncClient:
-    """Build an httpx.AsyncClient wired to the stub FastAPI app via ASGITransport."""
-    transport = httpx.ASGITransport(app=stub_app)
-    return httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0)
+def _make_search_mock(results_by_collection: dict[str, list[dict[str, Any]]]) -> AsyncMock:
+    """Return an AsyncMock for client.search() that returns results by collection name."""
+    async def _search(collection: str, query: str, top_k: int) -> list[dict[str, Any]]:
+        return results_by_collection.get(collection, [])
+    return AsyncMock(side_effect=_search)
 
 
 # ---------------------------------------------------------------------------
@@ -150,16 +108,12 @@ def _make_stub_http_client(stub_app: FastAPI) -> httpx.AsyncClient:
 async def test_H2_1_no_collections_get_pre_context_returns_none(patched_search_client):
     """H2.1: When the server has no collections, get_pre_context() returns None."""
     cfg = _make_cfg()
-    stub_app = _make_stub_search_app()
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=patched_search_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(
+        cfg=cfg,
+        search_client=patched_search_client,
+    )
 
-        result = await provider.get_pre_context("what is archon?")
+    result = await provider.get_pre_context("what is archon?")
 
     # Fresh server has no collections → route returns empty routable_names → pre_context=None
     assert result is None
@@ -179,16 +133,12 @@ async def test_H2_2_route_response_has_pinned_and_routable_names(patched_search_
     await patched_search_client.add_collection(coll_path)
 
     cfg = _make_cfg()
-    stub_app = _make_stub_search_app()
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=patched_search_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(
+        cfg=cfg,
+        search_client=patched_search_client,
+    )
 
-        await provider.get_pre_context("test query")
+    await provider.get_pre_context("test query")
 
     assert provider._route_response is not None
     assert hasattr(provider._route_response, "pinned_names")
@@ -205,17 +155,13 @@ async def test_H2_2_route_response_has_pinned_and_routable_names(patched_search_
 async def test_H2_3_search_and_prepare_without_pre_context_returns_none(patched_search_client):
     """H2.3: Calling search_and_prepare() without a prior get_pre_context() returns None."""
     cfg = _make_cfg()
-    stub_app = _make_stub_search_app()
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=patched_search_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(
+        cfg=cfg,
+        search_client=patched_search_client,
+    )
 
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -242,20 +188,14 @@ async def test_H2_4_tier1_searches_all_routable_and_pinned():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -284,20 +224,14 @@ async def test_H2_5_tier2_empty_selected_with_pinned_searches_only_pinned():
             decomposer_invoked=True,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=[])
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=[])
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -321,20 +255,14 @@ async def test_H2_6_tier2_empty_selected_no_pinned_returns_none():
             decomposer_invoked=True,
         )
     )
+    mock_client.search = _make_search_mock({})
 
     cfg = _make_cfg(max_parallel=3)
-    stub_app = _make_stub_search_app()
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=[])
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=[])
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -358,21 +286,15 @@ async def test_H2_7_tier3_hallucinated_collection_discarded():
             decomposer_invoked=True,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        # Decomposer selected real_col + a hallucinated name
-        task_output = _make_task_output(selected_collections=["real_col", "hallucinated_col"])
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    # Decomposer selected real_col + a hallucinated name
+    task_output = _make_task_output(selected_collections=["real_col", "hallucinated_col"])
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -402,20 +324,14 @@ async def test_H2_8_max_parallel_caps_routable():
             decomposer_invoked=False,  # Tier 1: search all routable, capped by max_parallel
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -449,33 +365,24 @@ async def test_H2_9_merged_results_ranked_by_score():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
     # After normalization per-collection, scores within each collection are 0..1;
     # the merged list is sorted by score descending.
-    # Both collections contribute at least one result.
     assert chunk_count >= 2
-    # The RAG text should contain chunks from both collections
     assert "low score chunk" in rag_text or "lower chunk" in rag_text
     assert "high score chunk" in rag_text or "high chunk 2" in rag_text
-    # Ranking assertion: "high score chunk" normalizes to 1.0 (top of col_high);
+    # Ranking: "high score chunk" normalizes to 1.0 (top of col_high);
     # "lower chunk" normalizes to 0.0 (bottom of col_low).
-    # The highest-scoring chunk must appear before the lowest-scoring chunk.
     assert rag_text.index("high score chunk") < rag_text.index("lower chunk")
 
 
@@ -506,30 +413,19 @@ async def test_H2_10_score_normalization_per_collection():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
-    # Normalization works: we get results from both collections
     assert result is not None
     rag_text, chunk_count, actual_searched = result
     assert chunk_count >= 2
-    # Both collections were searched
     assert set(actual_searched) == {"col_single", "col_range"}
-    # Ordering consequences of normalization:
-    # col_range: "top result" → 1.0, "bottom result" → 0.0
-    # col_single: "single result" → 0.5 (fallback, max==min)
     # Merged order: "top result" (1.0) > "single result" (0.5) > "bottom result" (0.0)
     assert rag_text.index("top result") < rag_text.index("single result")
     assert rag_text.index("single result") < rag_text.index("bottom result")
@@ -554,20 +450,14 @@ async def test_H2_11_rag_text_has_correct_markers():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -602,20 +492,14 @@ async def test_H2_12_chunk_count_matches_merged_results():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=3)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -635,45 +519,27 @@ async def test_E2_1_route_returns_none_get_pre_context_returns_none():
     mock_client = _make_mock_client(route_response=None)
 
     cfg = _make_cfg()
-    stub_app = _make_stub_search_app()
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        result = await provider.get_pre_context("what is archon?")
+    result = await provider.get_pre_context("what is archon?")
 
     assert result is None
     assert provider._route_response is None
 
 
 # ---------------------------------------------------------------------------
-# E2.2 — One collection returns 500, others succeed → skipped; remaining returned
+# E2.2 — One collection returns error, others succeed → skipped; remaining returned
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 @pytest.mark.e2e
-async def test_E2_2_one_collection_500_others_return_results(caplog):
-    """E2.2: One collection returns 500 → skipped, logged DEBUG; remaining results returned."""
-    # Use two collections; the stub returns 500 for "col_error" and results for "col_ok"
-    results_by_collection = {
-        "col_ok": [_search_result_dict(doc_id="ok1", chunk_id="ok1", text="ok chunk", score=0.8, source_path="/ok.md")],
-    }
-    # Custom stub that returns 500 for col_error
-    error_app = FastAPI()
-
-    @error_app.post("/mcp")
-    async def handle_mcp_with_error(request: Request) -> JSONResponse:
-        body = await request.json()
-        collection = body.get("params", {}).get("arguments", {}).get("collection", "")
+async def test_E2_2_one_collection_error_others_return_results(caplog):
+    """E2.2: One collection raises → skipped, logged DEBUG; remaining results returned."""
+    async def _search_with_error(collection: str, query: str, top_k: int) -> list[dict]:
         if collection == "col_error":
-            return JSONResponse(content={"error": "internal"}, status_code=500)
-        results = results_by_collection.get(collection, [])
-        return JSONResponse(content=_jsonrpc_result(results))
+            raise ConnectionError("server down")
+        return [_search_result_dict(doc_id="ok1", chunk_id="ok1", text="ok chunk", score=0.8, source_path="/ok.md")]
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -682,29 +548,22 @@ async def test_E2_2_one_collection_500_others_return_results(caplog):
             decomposer_invoked=False,
         )
     )
+    mock_client.search = AsyncMock(side_effect=_search_with_error)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    transport = httpx.ASGITransport(app=error_app)
     caplog.set_level(logging.DEBUG, logger="archon")
-    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
-    # The failing collection is skipped; the successful one produces results
     assert result is not None
     rag_text, chunk_count, actual_searched = result
     assert "col_error" not in actual_searched
     assert "col_ok" in actual_searched
     assert "ok chunk" in rag_text
-    assert chunk_count == 1  # only col_ok's one result
+    assert chunk_count == 1
     debug_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG and r.name == "archon"]
     assert any("search failed for" in m and "col_error" in m for m in debug_messages)
 
@@ -717,12 +576,9 @@ async def test_E2_2_one_collection_500_others_return_results(caplog):
 @pytest.mark.asyncio
 @pytest.mark.e2e
 async def test_E2_3_all_collections_error_returns_none():
-    """E2.3: When all collections return HTTP 500, search_and_prepare() returns None."""
-    error_app = FastAPI()
-
-    @error_app.post("/mcp")
-    async def handle_all_error(request: Request) -> JSONResponse:
-        return JSONResponse(content={"error": "internal"}, status_code=500)
+    """E2.3: When all collections raise, search_and_prepare() returns None."""
+    async def _all_fail(collection: str, query: str, top_k: int) -> list[dict]:
+        raise ConnectionError("server down")
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -731,20 +587,14 @@ async def test_E2_3_all_collections_error_returns_none():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = AsyncMock(side_effect=_all_fail)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    transport = httpx.ASGITransport(app=error_app)
-    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -779,22 +629,15 @@ async def test_E2_4_single_result_per_collection_score_normalized_to_0_5():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=5, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
-    # All 4 results appear; single-result collections are normalized to 0.5
     assert result is not None
     rag_text, chunk_count, actual_searched = result
     assert chunk_count == 4
@@ -822,7 +665,6 @@ async def test_E2_4_single_result_per_collection_score_normalized_to_0_5():
 @pytest.mark.e2e
 async def test_E2_5_all_collections_empty_returns_none():
     """E2.5: When all collections return empty result lists, search_and_prepare() returns None."""
-    # Stub returns empty results for all collections
     results_by_collection: dict[str, list[dict[str, Any]]] = {"col_a": [], "col_b": []}
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -831,53 +673,32 @@ async def test_E2_5_all_collections_empty_returns_none():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
 
 # ---------------------------------------------------------------------------
-# E2.6 — Server returns valid JSON but wrong shape → collection returns [], no crash
+# E2.6 — search returns wrong-shape dicts → results skipped via KeyError, returns None
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 @pytest.mark.e2e
 async def test_E2_6_wrong_shape_json_returns_empty_no_crash():
-    """E2.6: Valid JSON with unexpected shape → _search_collection returns [], no crash."""
-    # Stub returns valid JSON but with a shape that doesn't match the expected MCP format:
-    # the content block text is JSON with objects missing required keys (doc_id, chunk_id, etc.)
-    wrong_shape_app = FastAPI()
-
-    @wrong_shape_app.post("/mcp")
-    async def handle_wrong_shape(request: Request) -> JSONResponse:
-        # Returns a well-formed JSON-RPC envelope, but the text payload has wrong-shape objects
-        bad_results = [
+    """E2.6: search() returns dicts with wrong keys → SearchResult(**r) raises KeyError → [], no crash."""
+    async def _search_bad_shape(collection: str, query: str, top_k: int) -> list[dict]:
+        return [
             {"unexpected_key": "some value"},
             {"also_wrong": 42, "no_doc_id": True},
         ]
-        return JSONResponse(content={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "content": [
-                    {"type": "text", "text": json.dumps(bad_results)}
-                ]
-            },
-        })
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -886,49 +707,28 @@ async def test_E2_6_wrong_shape_json_returns_empty_no_crash():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = AsyncMock(side_effect=_search_bad_shape)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    transport = httpx.ASGITransport(app=wrong_shape_app)
-    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        # Must not raise — wrong shape is silently skipped per-result
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
-    # col_bad returns [] (all malformed items skipped) → merged empty → None
+    # Wrong-shape dicts raise TypeError during SearchResult(**r) → collection returns [] → None
     assert result is None
 
 
 # ---------------------------------------------------------------------------
-# E2.6b — Server returns valid JSON-RPC envelope but unparseable JSON in text → no crash
+# E2.6b — search() returns empty list from wrong-shape → no crash
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 @pytest.mark.e2e
 async def test_E2_6b_invalid_json_in_text_block_returns_empty_no_crash():
-    """E2.6b: Content block has unparseable JSON → _search_collection returns [], no crash."""
-    invalid_json_app = FastAPI()
-
-    @invalid_json_app.post("/mcp")
-    async def handle_invalid_json(request: Request) -> JSONResponse:
-        return JSONResponse(content={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "content": [
-                    {"type": "text", "text": "{ this is not valid json {{{{"}
-                ]
-            },
-        })
-
+    """E2.6b: search() returns [] (empty result from any failure) → no crash, returns None."""
     mock_client = _make_mock_client(
         route_response=_make_route_response(
             pinned_names=[],
@@ -936,20 +736,14 @@ async def test_E2_6b_invalid_json_in_text_block_returns_empty_no_crash():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock({})  # returns [] for all collections
 
     cfg = _make_cfg(max_parallel=3, top_k_return=5)
-    transport = httpx.ASGITransport(app=invalid_json_app)
-    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is None
 
@@ -972,16 +766,9 @@ async def test_C2_1_disabled_config_get_pre_context_returns_none_no_http():
     )
 
     cfg = _make_cfg(enabled=False)
-    stub_app = _make_stub_search_app()
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        result = await provider.get_pre_context("test query")
+    result = await provider.get_pre_context("test query")
 
     assert result is None
     # route() must NOT have been called
@@ -1008,22 +795,13 @@ async def test_C2_2_disabled_config_search_and_prepare_returns_none():
     )
 
     cfg = _make_cfg(enabled=False)
-    stub_app = _make_stub_search_app(
-        {"col_a": [_search_result_dict(doc_id="a1", chunk_id="a1", text="some text", score=0.9, source_path="/a.md")]}
-    )
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        # get_pre_context with disabled cfg → _route_response stays None
-        await provider.get_pre_context("test query")
+    # get_pre_context with disabled cfg → _route_response stays None
+    await provider.get_pre_context("test query")
 
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "test query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "test query")
 
     # search_and_prepare returns None because _route_response is None
     assert result is None
@@ -1061,20 +839,14 @@ async def test_C2_3_top_k_3_returns_exactly_3_results():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = _make_search_mock(results_by_collection)
 
     cfg = _make_cfg(max_parallel=3, top_k_return=3)
-    stub_app = _make_stub_search_app(results_by_collection)
-    async with _make_stub_http_client(stub_app) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -1082,7 +854,7 @@ async def test_C2_3_top_k_3_returns_exactly_3_results():
 
 
 # ---------------------------------------------------------------------------
-# C2.4 — max_parallel=1 → sequential search; verified via call-order recorder
+# C2.4 — max_parallel=1 → serialises searches; all pinned searched despite cap
 # ---------------------------------------------------------------------------
 
 
@@ -1094,24 +866,15 @@ async def test_C2_4_max_parallel_1_sequential_search():
     Pinned collections bypass the tier-1 routable cap, so all 3 are added to
     to_search regardless of max_parallel_collections=1.  The semaphore(1) still
     allows only one in-flight request at a time, but all three complete.
-    This verifies that the semaphore serialises rather than blocks collections.
     """
     call_order: list[str] = []
 
-    sequential_app = FastAPI()
-
-    @sequential_app.post("/mcp")
-    async def handle_sequential(request: Request) -> JSONResponse:
-        body = await request.json()
-        collection = body.get("params", {}).get("arguments", {}).get("collection", "")
+    async def _search_ordered(collection: str, query: str, top_k: int) -> list[dict]:
         call_order.append(collection)
-        results = [
-            _search_result_dict(
-                doc_id=f"{collection}-d", chunk_id=f"{collection}-c",
-                text=f"text from {collection}", score=0.8, source_path=f"/{collection}.md"
-            )
-        ]
-        return JSONResponse(content=_jsonrpc_result(results))
+        return [_search_result_dict(
+            doc_id=f"{collection}-d", chunk_id=f"{collection}-c",
+            text=f"text from {collection}", score=0.8, source_path=f"/{collection}.md"
+        )]
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -1121,20 +884,14 @@ async def test_C2_4_max_parallel_1_sequential_search():
             decomposer_invoked=False,
         )
     )
+    mock_client.search = AsyncMock(side_effect=_search_ordered)
 
     cfg = _make_cfg(max_parallel=1, top_k_return=10)
-    transport = httpx.ASGITransport(app=sequential_app)
-    async with httpx.AsyncClient(base_url="http://stub", transport=transport, timeout=10.0) as http:
-        provider = SearchContextProvider(
-            search_url="http://stub/mcp",
-            cfg=cfg,
-            search_client=mock_client,
-        )
-        provider._http = http
+    provider = SearchContextProvider(cfg=cfg, search_client=mock_client)
 
-        await provider.get_pre_context("query")
-        task_output = _make_task_output(selected_collections=None)
-        result = await provider.search_and_prepare(task_output, "query")
+    await provider.get_pre_context("query")
+    task_output = _make_task_output(selected_collections=None)
+    result = await provider.search_and_prepare(task_output, "query")
 
     assert result is not None
     rag_text, chunk_count, actual_searched = result
@@ -1144,7 +901,7 @@ async def test_C2_4_max_parallel_1_sequential_search():
     assert "pin_2" in actual_searched
     assert "pin_3" in actual_searched
 
-    # All 3 pinned collections were recorded by the HTTP handler
+    # All 3 pinned collections were recorded by the mock
     assert "pin_1" in call_order
     assert "pin_2" in call_order
     assert "pin_3" in call_order
@@ -1153,104 +910,3 @@ async def test_C2_4_max_parallel_1_sequential_search():
     assert "col_1" in actual_searched
     assert "col_2" not in actual_searched
     assert "col_3" not in actual_searched
-
-
-# ---------------------------------------------------------------------------
-# H2.13 — Real FastMCP ASGI integration: search tool returns SearchResult list
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.e2e
-async def test_H2_13_real_fastmcp_asgi_search_returns_results(patched_search_client):
-    """H2.13: Wire provider._http to a real FastMCP ASGI app; _search_collection parses SearchResult list."""
-    from fastmcp import FastMCP
-    from archon.ai.search_context_provider import SearchResult, _search_collection
-
-    mcp = FastMCP("test-search")
-
-    @mcp.tool()
-    async def search(query: str, collection: str = "default") -> list[dict]:
-        """Search for relevant document chunks."""
-        return [
-            {
-                "doc_id": "doc1",
-                "chunk_id": "chunk1",
-                "text": "hello world from fastmcp",
-                "score": 0.9,
-                "source_path": "/docs/file.md",
-            }
-        ]
-
-    mcp_app = mcp.http_app(stateless_http=True, json_response=True)
-
-    async with mcp_app.lifespan(mcp_app):
-        cfg = _make_cfg()
-        provider = SearchContextProvider(
-            search_url="http://test/mcp",
-            cfg=cfg,
-            search_client=patched_search_client,
-        )
-        provider._http = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=mcp_app),
-            base_url="http://test",
-            headers={"Accept": "application/json, text/event-stream"},
-        )
-        async with provider._http:
-            results = await _search_collection(
-                provider._http, "http://test/mcp", "col_a", "test query", 5
-            )
-
-    assert isinstance(results, list)
-    assert len(results) == 1
-    r = results[0]
-    assert isinstance(r, SearchResult)
-    assert r.doc_id == "doc1"
-    assert r.chunk_id == "chunk1"
-    assert r.text == "hello world from fastmcp"
-    assert r.score == pytest.approx(0.9)
-    assert r.source_path == "/docs/file.md"
-
-
-# ---------------------------------------------------------------------------
-# E2.7 — JSON-RPC error envelope → _search_collection returns [], no exception
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@pytest.mark.e2e
-async def test_E2_7_fastmcp_jsonrpc_error_returns_empty_no_exception(patched_search_client):
-    """E2.7: JSON-RPC error envelope (HTTP 200, error key present) → _search_collection returns [].
-
-    Uses a minimal stub ASGI app that unconditionally returns a JSON-RPC error response.
-    Wires provider._http to an AsyncClient with ASGITransport, then calls
-    _search_collection through provider._http — no conditional branches.
-    """
-    from archon.ai.search_context_provider import _search_collection
-
-    error_stub = FastAPI()
-
-    @error_stub.post("/mcp")
-    async def return_jsonrpc_error(request: Request) -> JSONResponse:
-        return JSONResponse(content={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "error": {"code": -32600, "message": "Invalid request"},
-        })
-
-    cfg = _make_cfg()
-    provider = SearchContextProvider(
-        search_url="http://stub/mcp",
-        cfg=cfg,
-        search_client=patched_search_client,
-    )
-    provider._http = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=error_stub),
-        base_url="http://stub",
-    )
-    async with provider._http:
-        results = await _search_collection(
-            provider._http, "http://stub/mcp", "col_a", "test query", 5
-        )
-
-    assert results == []

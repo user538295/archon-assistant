@@ -191,7 +191,7 @@ class Pipeline:
         self._classifier = Classifier(cwd=cwd)
         # Search context provider: created once, reused across send() calls
         self._search_provider: SearchContextProvider | None = (
-            SearchContextProvider(search_url=search_url, cfg=rag_config)
+            SearchContextProvider(cfg=rag_config)
             if search_url and rag_config
             else None
         )
