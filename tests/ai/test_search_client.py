@@ -1658,6 +1658,127 @@ class TestSearchClient:
         assert not isinstance(client._http.auth, SearchApiKeyAuth)
 
 
+# ---------------------------------------------------------------------------
+# search()
+# ---------------------------------------------------------------------------
+
+
+class TestSearchClientSearch:
+    """Task 4.3 — SearchClient.search() wrapping POST /search."""
+
+    @pytest.mark.asyncio
+    async def test_search_success(self) -> None:
+        """search() returns list of result dicts on 200 response."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        results_data = [
+            {"doc_id": "d1", "chunk_id": "c1", "text": "hello", "score": 0.9, "source_path": "/f"}
+        ]
+        mock_resp = _mock_response(200, results_data)
+
+        with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
+            result = await client.search("col1", "hello")
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["doc_id"] == "d1"
+        assert result[0]["score"] == 0.9
+
+    @pytest.mark.asyncio
+    async def test_search_empty_result(self) -> None:
+        """search() returns [] on 200 response with empty list."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(200, [])
+
+        with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
+            result = await client.search("col1", "query")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_search_timeout(self, caplog: pytest.LogCaptureFixture) -> None:
+        """search() returns [] and logs WARNING on TimeoutException."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.TimeoutException("timed out"))):
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                result = await client.search("col1", "query")
+
+        assert result == []
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("col1" in r.message for r in warning_records)
+
+    @pytest.mark.asyncio
+    async def test_search_connect_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        """search() returns [] and logs DEBUG (not WARNING) on ConnectError."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=httpx.ConnectError("refused"))):
+            with caplog.at_level(logging.DEBUG, logger="archon"):
+                result = await client.search("col1", "query")
+
+        assert result == []
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG and "col1" in r.message]
+        assert debug_records, "Expected a DEBUG log record for ConnectError"
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "col1" in r.message]
+        assert not warning_records, "ConnectError should not emit a WARNING log"
+
+    @pytest.mark.asyncio
+    async def test_search_http_500(self) -> None:
+        """search() returns [] on HTTP 500."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(500, {})
+
+        with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
+            result = await client.search("col1", "query")
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_search_http_401_no_double_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """search() returns [] on HTTP 401; no extra WARNING beyond auth subclass."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+        mock_resp = _mock_response(401, {})
+
+        with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                result = await client.search("col1", "query")
+
+        assert result == []
+        # The search() method itself must NOT log an extra WARNING for 401/403
+        extra_warnings = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "col1" in r.message
+        ]
+        assert len(extra_warnings) == 0, f"search() must not log a WARNING for 401: {extra_warnings}"
+
+    @pytest.mark.asyncio
+    async def test_search_unexpected_exception(self, caplog: pytest.LogCaptureFixture) -> None:
+        """search() returns [] on unexpected RuntimeError; WARNING logged."""
+        from archon.ai.search_client import SearchClient
+
+        client = SearchClient(base_url="http://localhost:8282")
+
+        with patch.object(client._http, "post", new=AsyncMock(side_effect=RuntimeError("boom"))):
+            with caplog.at_level(logging.WARNING, logger="archon"):
+                result = await client.search("col1", "query")
+
+        assert result == []
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warning_records, "Expected a WARNING log for unexpected exception"
+
+
 class TestResetSearchClient:
     """A10.25–A10.26: reset_search_client() singleton management."""
 

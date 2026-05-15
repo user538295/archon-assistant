@@ -452,8 +452,8 @@ archon doctor → SearchClient.status()  [auth injected]
   - Checkpoint: `uv run pytest tests/ai/test_search_client.py -k "TestSearchClient" -v`
 
 #### Task 4.3 — `SearchClient.search()` method
-- [ ] **File**: `archon/ai/search_client.py`
-- [ ] **File**: `tests/ai/test_search_client.py` (new class `TestSearchClientSearch`)
+- [x] **File**: `archon/ai/search_client.py`
+- [x] **File**: `tests/ai/test_search_client.py` (new class `TestSearchClientSearch`)
 - **Depends on**: Task 4.2, Task 2.1 (for contract alignment)
 - **Description**:
   - Add `search()` method after the route-related methods:
