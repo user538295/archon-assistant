@@ -73,19 +73,19 @@ Items are ordered by this rule set:
 
 Quick reference: roadmap items → their brief, plan, and current status. Items without an entry have no brief yet.
 
-| #    | Item                                      | Status         | Brief                                                         | Plan                                                                                                                                                                              |
-| ---- | ----------------------------------------- | -------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | Extract Search into a standalone package  | ✅ Complete     | [Brief](../Completed/search-product-separation-brief.md)      | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md) |
-| 2    | Canonical service contract + job model    | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — domain types + async job model |
-| 3    | Real metadata schema                      | ✅ Complete (FEAT-038) | [Brief](../Completed/search-product-separation-brief.md) | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — Phase 6 Task 6.1               |
+| #    | Item                                      | Status                       | Brief                                                                                                                              | Plan                                                                                                                                                                                                                                                                     |
+| ---- | ----------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | Extract Search into a standalone package  | ✅ Complete                   | [Brief](../Completed/search-product-separation-brief.md)                                                                           | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) · [E2E plan](../Completed/FEAT-038-search-e2e-test-plan.md) · [E2E impl](../Completed/FEAT-038-search-e2e-impl.md)                                                                                        |
+| 2    | Canonical service contract + job model    | ✅ Complete (FEAT-038)        | [Brief](../Completed/search-product-separation-brief.md)                                                                           | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — domain types + async job model                                                                                                                                                                          |
+| 3    | Real metadata schema                      | ✅ Complete (FEAT-038)        | [Brief](../Completed/search-product-separation-brief.md)                                                                           | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — Phase 6 Task 6.1                                                                                                                                                                                        |
 | 4    | Evaluation harness + data-collection loop | ✅ Closed (see decision note) | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) · [FEAT-039b brief](FEAT-039b-search-telemetry-and-privacy-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) · [FEAT-039b plan](FEAT-039b-search-telemetry-and-privacy-plan.md) · [FEAT-039c plan](FEAT-039c-search-telemetry-observability-plan.md) · [FEAT-039d plan](FEAT-039d-telemetry-entries-client-plan.md) |
-| 5a   | API key authentication                    | 📋 Not started | [Brief](search-auth-5a-api-key-brief.md)                      | —                                                                                                                                                                                 |
-| 5b   | Namespace data model                      | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
-| 5c   | Namespace isolation at storage + query    | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
-| 5d   | Document/chunk-level security trimming    | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
-| 6    | Stable external APIs: REST + MCP          | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
-| 7–36 | Priority 1–5 items                        | 📋 Not started | —                                                             | —                                                                                                                                                                                 |
-|      |                                           |                |                                                               |                                                                                                                                                                                   |
+| 5a   | API key authentication                    | ✅ Complete (FEAT-041)        | [Brief](search-auth-5a-api-key-brief.md)                                                                                           | [Plan](search-auth-5a-api-key-plan.md)                                                                                                                                                                                                                                   |
+| 5b   | Namespace data model                      | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
+| 5c   | Namespace isolation at storage + query    | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
+| 5d   | Document/chunk-level security trimming    | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
+| 6    | Stable external APIs: REST + MCP          | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
+| 7–36 | Priority 1–5 items                        | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
+|      |                                           |                              |                                                                                                                                    |                                                                                                                                                                                                                                                                          |
 
 > **Decision (2026-05-15)**: Item 4 is closed with the observability layer in place (offline harness + query telemetry + HTTP read-back endpoints via FEAT-039 through 039d). The remaining work — relevance feedback capture, online data-collection loop, and fixture promotion — is deferred indefinitely. Rationale: current retrieval quality is good and there is no observed quality problem that justifies a feedback loop now. The telemetry infrastructure (JSONL logging + `/telemetry/entries` + `/telemetry/stats`) provides enough visibility to detect and investigate problems if they arise. The deferred items can be reopened as a new roadmap entry when a concrete quality gap is identified.
 
@@ -247,21 +247,20 @@ Split into four independent increments that can be briefed and implemented separ
 
 #### 5a. API key authentication
 
+> **Status: ✅ Complete (FEAT-041)** — [Brief](search-auth-5a-api-key-brief.md) · [Plan](search-auth-5a-api-key-plan.md)
+
 **Why first**: Auth is the gate. Nothing else in this group makes sense until every API call can be tied to an identity. This is also the smallest, most self-contained increment.
 
-**What to do**
+**What was delivered**
 
-- Add API key or bearer-token validation middleware that runs before all handlers.
-- Keys are configured statically (config file or env var) — no key management API in this increment.
-- Unauthenticated requests receive HTTP 401; keys with wrong format receive HTTP 403.
-- Health/readiness endpoints remain unauthenticated (standard practice).
-
-**Minimum acceptance criteria**
-
-- Every mutating and read endpoint rejects requests without a valid key.
-- Health endpoints remain public.
-- Key validation is middleware, not scattered across handlers.
-- Unit tests cover valid key, missing key, malformed key, and health bypass.
+- `APIKeyMiddleware` — Bearer token validation on all routes except `GET /health`; uses `secrets.compare_digest`
+- `key_manager.py` — auto-generates 64-char hex key to `~/.archon/.search.env` (atomic write, chmod 600); env var `ARCHON_SEARCH_API_KEY` overrides file; zero-config for local users
+- `SearchApiKeyAuth` — `httpx.Auth` subclass in `SearchClient`; lazy load, success caching, 401 retry with fresh key, ERROR log on second failure
+- `SearchClient.search()` — `POST /search` wrapping hybrid vector+FTS search
+- `SearchContextProvider` migrated from raw httpx to `SearchClient.search()`
+- `doctor._check_search_health()` migrated from JSON-RPC to `SearchClient` REST calls
+- `_check_search_key_file()` in `diagnostics.py` — key file existence + permissions (600) check
+- Authenticated status check in `archon doctor`
 
 #### 5b. Namespace data model
 
