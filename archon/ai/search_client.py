@@ -117,9 +117,12 @@ class SearchClient:
         base_url: str,
         timeout: float = 10.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        auth: httpx.Auth | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._http = httpx.AsyncClient(base_url=self._base_url, timeout=timeout, transport=transport)
+        if auth is None:
+            auth = SearchApiKeyAuth()
+        self._http = httpx.AsyncClient(base_url=self._base_url, timeout=timeout, transport=transport, auth=auth)
 
     # ------------------------------------------------------------------
     # /route

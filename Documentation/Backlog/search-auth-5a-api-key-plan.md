@@ -434,8 +434,8 @@ archon doctor → SearchClient.status()  [auth injected]
   - Checkpoint: `uv run pytest tests/ai/test_search_client.py -k "TestSearchApiKeyAuth" -v`
 
 #### Task 4.2 — Wire `SearchApiKeyAuth` into `SearchClient`
-- [ ] **File**: `archon/ai/search_client.py` (`SearchClient.__init__`)
-- [ ] **File**: `tests/ai/test_search_client.py` (update `TestSearchClientInit` or add fixture)
+- [x] **File**: `archon/ai/search_client.py` (`SearchClient.__init__`)
+- [x] **File**: `tests/ai/test_search_client.py` (update `TestSearchClientInit` or add fixture)
 - **Depends on**: Task 4.1
 - **Description**:
   - Modify `SearchClient.__init__`:

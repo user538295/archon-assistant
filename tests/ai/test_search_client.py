@@ -557,6 +557,22 @@ class TestGetSearchClientAsync:
 
         assert id(client1) != id(client2)
 
+    @pytest.mark.asyncio
+    async def test_get_search_client_uses_search_api_key_auth(self) -> None:
+        """get_search_client() singleton uses SearchApiKeyAuth by default."""
+        from archon.ai.search_client import SearchApiKeyAuth, get_search_client, reset_search_client
+
+        await reset_search_client()
+
+        mock_cfg = MagicMock()
+        mock_cfg.search.url = "http://localhost:8765"
+
+        with patch("archon.ai.search_client.config", mock_cfg):
+            client = get_search_client()
+
+        assert isinstance(client._http.auth, SearchApiKeyAuth)
+        await reset_search_client()
+
 
 # ---------------------------------------------------------------------------
 # transport parameter
@@ -1620,6 +1636,26 @@ class TestSearchApiKeyAuth:
             key = await auth._resolve_key()
 
         assert key == hex_key
+
+
+class TestSearchClient:
+    """Task 4.2 — SearchClient.__init__ wires SearchApiKeyAuth by default."""
+
+    def test_search_client_uses_auth_subclass(self) -> None:
+        """SearchClient() (no auth arg) uses a SearchApiKeyAuth instance."""
+        from archon.ai.search_client import SearchClient, SearchApiKeyAuth
+
+        client = SearchClient(base_url="http://localhost:8282")
+        assert isinstance(client._http.auth, SearchApiKeyAuth)
+
+    def test_search_client_accepts_custom_auth(self) -> None:
+        """SearchClient(auth=custom) uses the provided auth object, not SearchApiKeyAuth."""
+        from archon.ai.search_client import SearchClient, SearchApiKeyAuth
+
+        custom_auth = MagicMock(spec=httpx.Auth)
+        client = SearchClient(base_url="http://localhost:8282", auth=custom_auth)
+        assert client._http.auth is custom_auth
+        assert not isinstance(client._http.auth, SearchApiKeyAuth)
 
 
 class TestResetSearchClient:
