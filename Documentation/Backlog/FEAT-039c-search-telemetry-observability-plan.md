@@ -53,23 +53,23 @@ After FEAT-039c, any caller (HTTP, MCP, `SearchClient`) can query aggregated sea
 ---
 
 ## Acceptance criteria
-- [ ] `export_enabled = true` in TOML no longer raises `ConfigError`; service starts; WARNING logged; `config.telemetry.export_enabled` is `False` in memory.
-- [ ] `GET /telemetry/stats` returns the documented JSON shape with `schema_version: 1` when telemetry is enabled and JSONL files exist.
-- [ ] `GET /telemetry/stats` returns `{"enabled": false}` (HTTP 200) when `telemetry.enabled = false`.
-- [ ] `GET /telemetry/entries` returns paginated entries with `next_offset`, `total_in_window`, `skipped_lines`.
-- [ ] All entry filters are AND'd; `since > until` returns HTTP 400.
-- [ ] `endpoint`, `status`, `error_kind` values not in their respective enums return HTTP 422.
-- [ ] Corrupted JSONL lines are skipped; `skipped_lines` in the response counts them; the request succeeds.
-- [ ] `by_collection` fans out for routing entries: each element of `collections` list gets +1.
-- [ ] `success_rate` is `null` when `total_queries == 0`; `count(status=="ok") / total_queries` otherwise.
-- [ ] `latency_ms: {"p50": null, "p95": null}` when fewer than 1 entry (zero entries); nearest-rank values otherwise.
-- [ ] Invariant holds: `sum(error_breakdown.values()) == sum(by_endpoint[e]["error"] for e in by_endpoint)`.
-- [ ] `GET /telemetry/stats?since=2026-05-15&until=2026-05-14` returns HTTP 400.
-- [ ] All JSONL reads run in `asyncio.to_thread()`; the FastAPI event loop is not blocked.
-- [ ] `SearchClient.telemetry_stats()` returns `None` when service is unreachable or on any HTTP/network error; returns `{"enabled": false}` dict when telemetry is disabled (caller checks `enabled` key).
-- [ ] `telemetry_stats` MCP tool returns a human-readable hint when result is `None`.
-- [ ] Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/ -q` — all pass.
-- [ ] Checkpoint: `uv run pytest --no-cov tests/ai/test_search_client.py tests/ai/test_archon_toolkit_search.py -q` — all pass (archon side).
+- [x] `export_enabled = true` in TOML no longer raises `ConfigError`; service starts; WARNING logged; `config.telemetry.export_enabled` is `False` in memory.
+- [x] `GET /telemetry/stats` returns the documented JSON shape with `schema_version: 1` when telemetry is enabled and JSONL files exist.
+- [x] `GET /telemetry/stats` returns `{"enabled": false}` (HTTP 200) when `telemetry.enabled = false`.
+- [x] `GET /telemetry/entries` returns paginated entries with `next_offset`, `total_in_window`, `skipped_lines`.
+- [x] All entry filters are AND'd; `since > until` returns HTTP 400.
+- [x] `endpoint`, `status`, `error_kind` values not in their respective enums return HTTP 422.
+- [x] Corrupted JSONL lines are skipped; `skipped_lines` in the response counts them; the request succeeds.
+- [x] `by_collection` fans out for routing entries: each element of `collections` list gets +1.
+- [x] `success_rate` is `null` when `total_queries == 0`; `count(status=="ok") / total_queries` otherwise.
+- [x] `latency_ms: {"p50": null, "p95": null}` when fewer than 1 entry (zero entries); nearest-rank values otherwise.
+- [x] Invariant holds: `sum(error_breakdown.values()) == sum(by_endpoint[e]["error"] for e in by_endpoint)`.
+- [x] `GET /telemetry/stats?since=2026-05-15&until=2026-05-14` returns HTTP 400.
+- [x] All JSONL reads run in `asyncio.to_thread()`; the FastAPI event loop is not blocked.
+- [x] `SearchClient.telemetry_stats()` returns `None` when service is unreachable or on any HTTP/network error; returns `{"enabled": false}` dict when telemetry is disabled (caller checks `enabled` key).
+- [x] `telemetry_stats` MCP tool returns a human-readable hint when result is `None`.
+- [x] Checkpoint: `cd packages/archon-search && uv run pytest --no-cov tests/ -q` — all pass.
+- [x] Checkpoint: `uv run pytest --no-cov tests/ai/test_search_client.py tests/ai/test_archon_toolkit_search.py -q` — all pass (archon side).
 
 ---
 
@@ -369,8 +369,8 @@ Handler returns:
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section: `[telemetry]` config description — update `export_enabled` line from "raises ConfigError (reserved for FEAT-039c)" to "logs WARNING and is ignored (reserved for FEAT-039d)"; add `GET /telemetry/stats` and `GET /telemetry/entries` to the archon-search HTTP surface, path: `CLAUDE.md`
-- [ ] `packages/archon-search/README.md`, section: add `## Telemetry Read-Back API` subsection documenting the two new endpoints, their parameters, and response shapes, path: `packages/archon-search/README.md`
+- [x] `CLAUDE.md`, section: `[telemetry]` config description — update `export_enabled` line from "raises ConfigError (reserved for FEAT-039c)" to "logs WARNING and is ignored (reserved for FEAT-039d)"; add `GET /telemetry/stats` and `GET /telemetry/entries` to the archon-search HTTP surface, path: `CLAUDE.md`
+- [x] `packages/archon-search/README.md`, section: add `## Telemetry Read-Back API` subsection documenting the two new endpoints, their parameters, and response shapes, path: `packages/archon-search/README.md`
 
 ---
 
