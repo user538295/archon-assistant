@@ -2131,3 +2131,51 @@ def test_check_search_key_file_search_disabled(monkeypatch: pytest.MonkeyPatch) 
     assert result.ok is True
     assert "search disabled" in result.detail.lower()
     mock_exists.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Task 6.2 — Authenticated GET /status check in _check_search_health()
+# ---------------------------------------------------------------------------
+
+
+def test_check_search_auth_success() -> None:
+    """health() returns a dict → return list includes CheckResult('search auth', True, 'authenticated')."""
+    cfg = _make_rag_config()
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value={"status": "ok"})
+        sc_mock.indexing_state = AsyncMock(return_value={"collections": {}})
+        sc_mock.list_collections = AsyncMock(return_value=[])
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        results = _run(doctor_mod._check_search_health(cfg))
+    auth_results = [r for r in results if r.name == "search auth"]
+    assert len(auth_results) == 1
+    assert auth_results[0].ok is True
+    assert auth_results[0].detail == "authenticated"
+
+
+def test_check_search_auth_401_actionable() -> None:
+    """health() returns None → return list includes CheckResult('search auth', False, ...) with actionable message."""
+    cfg = _make_rag_config()
+    with patch("archon.cli.doctor.SearchClient") as mock_cls:
+        sc_mock = AsyncMock()
+        sc_mock.health = AsyncMock(return_value=None)
+        sc_mock.__aenter__ = AsyncMock(return_value=sc_mock)
+        sc_mock.__aexit__ = AsyncMock(return_value=False)
+        mock_cls.return_value = sc_mock
+        results = _run(doctor_mod._check_search_health(cfg))
+    auth_results = [r for r in results if r.name == "search auth"]
+    assert len(auth_results) == 1
+    assert auth_results[0].ok is False
+    assert "ARCHON_SEARCH_API_KEY" in auth_results[0].detail
+    assert ".search.env" in auth_results[0].detail
+
+
+def test_check_search_auth_disabled() -> None:
+    """search disabled → _check_search_health returns empty list; no 'search auth' CheckResult."""
+    cfg = _make_rag_config(enabled=False)
+    results = _run(doctor_mod._check_search_health(cfg))
+    auth_results = [r for r in results if r.name == "search auth"]
+    assert len(auth_results) == 0

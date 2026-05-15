@@ -579,8 +579,8 @@ archon doctor → SearchClient.status()  [auth injected]
   - Checkpoint: `uv run pytest tests/cli/test_doctor.py -k "key_file" -v`
 
 #### Task 6.2 — Authenticated `GET /status` check in doctor
-- [ ] **File**: `archon/cli/doctor.py`
-- [ ] **File**: `tests/cli/test_doctor.py`
+- [x] **File**: `archon/cli/doctor.py`
+- [x] **File**: `tests/cli/test_doctor.py`
 - **Depends on**: Task 4.2
 - **Description**:
   - Modify `_check_search_health()` to return a list of `CheckResult` objects instead of `None`. Within the existing `async with SearchClient(search_url) as client:` block, after the health + indexing_state calls, add an auth check:

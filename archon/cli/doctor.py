@@ -51,8 +51,8 @@ def _check_search_server(cfg: Any) -> CheckResult:
 
 _SEARCH_STALE_DAYS = 7
 
-async def _check_search_health(cfg: Any) -> None:
-    """Check search collection health and print warnings.
+async def _check_search_health(cfg: Any) -> list[CheckResult]:
+    """Check search collection health and return a list of CheckResults.
 
     Uses SearchClient HTTP API: health() to check reachability,
     indexing_state() for per-collection progress, list_collections() +
@@ -63,15 +63,20 @@ async def _check_search_health(cfg: Any) -> None:
 
     if not search.enabled:
         print("Search: disabled")
-        return
+        return []
 
+    results: list[CheckResult] = []
     search_url = search.url
     async with SearchClient(search_url) as client:
         # Check reachability via health endpoint
         health = await client.health()
         if health is None:
             print("Search: not running")
-            return
+            results.append(CheckResult(
+                "search auth", False,
+                "401 Unauthorized or unreachable — check ARCHON_SEARCH_API_KEY or ~/.archon/.search.env",
+            ))
+            return results
 
         # Fetch per-collection indexing state via HTTP
         state_data = await client.indexing_state()
@@ -170,6 +175,9 @@ async def _check_search_health(cfg: Any) -> None:
             print(f"❌ Collection '{name}' — failed: {error}")
         # "done" in state but absent from LanceDB is an inconsistency — skip silently
 
+    results.append(CheckResult("search auth", True, "authenticated"))
+    return results
+
 def run_doctor() -> int:
     checks = [
         _check_git, _check_uv, _check_python, _check_claude,
@@ -196,7 +204,7 @@ def run_doctor() -> int:
             results.append(search_result)
             search_server_ok = search_result.ok
             if search_server_ok and config.search.enabled:
-                asyncio.run(_check_search_health(config))
+                results.extend(asyncio.run(_check_search_health(config)))
     except Exception as e:
         print(f"RAG health check failed: {e}")
 
