@@ -47,7 +47,7 @@ Existing reference implementation:
 - [ ] Integer params (`offset`, `limit`) are serialised correctly in the query string
 - [ ] HTTP 200 `{"enabled": false}` is returned as-is (not `None`)
 - [ ] Any failure returns `None`; timeout and HTTP errors log at WARNING, connection refused logs at DEBUG
-- [ ] `CLAUDE.md` `search_client.py` entry updated to include `telemetry_entries()`
+- [x] `CLAUDE.md` `search_client.py` entry updated to include `telemetry_entries()`
 - [ ] All existing tests continue to pass
 
 ---
@@ -127,7 +127,7 @@ caller → SearchClient.telemetry_entries(filters) → GET /telemetry/entries?<p
 ---
 
 ## Documentation update
-- [ ] `CLAUDE.md`, section `archon/ai/` → `search_client.py` bullet: add `telemetry_entries()` alongside `telemetry_stats()`, path: `CLAUDE.md`
+- [x] `CLAUDE.md`, section `archon/ai/` → `search_client.py` bullet: add `telemetry_entries()` alongside `telemetry_stats()`, path: `CLAUDE.md`
 
 ---
 
@@ -234,7 +234,7 @@ caller → SearchClient.telemetry_entries(filters) → GET /telemetry/entries?<p
   - Checkpoint (14 tests): `uv run pytest tests/ai/test_search_client.py -k "TelemetryEntries" -v`
 
 #### Task 1.2 — CLAUDE.md documentation update
-- [ ] **File**: `CLAUDE.md`
+- [x] **File**: `CLAUDE.md`
 - **Depends on**: Task 1.1
 - **Description**:
   - In the `archon/ai/` → `search_client.py` bullet in `CLAUDE.md`, add `telemetry_entries()` to the list of methods alongside `telemetry_stats()`.
