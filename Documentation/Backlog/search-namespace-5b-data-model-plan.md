@@ -276,7 +276,7 @@ except Exception as exc:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "test_migrate_namespace" -v`
 
 #### Task 3.2 — Wire migration into lifespan (`app.py`)
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - In the `lifespan` async context manager, immediately after `await app.state.search_store.connect()` and before the telemetry block, add: `await app.state.search_store.migrate_namespace()`
