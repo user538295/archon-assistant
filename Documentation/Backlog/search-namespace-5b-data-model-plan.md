@@ -186,7 +186,7 @@ async def migrate_namespace(self) -> None:
 > **Releasable**: after Task 2.3 — fresh installs get the column; existing read/write paths are namespace-aware.
 
 #### Task 2.1 — `_meta_schema()` adds `namespace` column
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add `pa.field("namespace", pa.utf8())` to the list of fields in `_meta_schema()` (after `described_at_doc_count`)
