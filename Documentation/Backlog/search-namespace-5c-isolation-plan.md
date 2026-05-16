@@ -450,7 +450,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_job_store.py -v`
 
 #### Task 3.4 — `_default_ingest_task()` namespace parameter in `routes_jobs.py`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 3.1, Task 3.3
 - **Description**:
   - Change signature: `_default_ingest_task(job_id, store, body, namespace: str = DEFAULT_NAMESPACE, pipeline_fn=None)`. Namespace is inserted as the 4th positional parameter — before `pipeline_fn`. Giving `namespace` a default of `DEFAULT_NAMESPACE` makes the change safe for incremental deployment: existing 3-arg callers continue to work until they are explicitly wired in Tasks 4.2, 4.5, and 5.3.
