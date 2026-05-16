@@ -307,7 +307,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "get_collection_meta" -v`
 
 #### Task 1.4 — `delete_collection_meta()` in `store.py`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add new method: `async def delete_collection_meta(self, name: str, namespace: str) -> None`.
