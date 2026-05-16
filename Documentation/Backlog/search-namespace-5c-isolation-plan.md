@@ -424,7 +424,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_types.py -v`
 
 #### Task 3.2 — `job_to_dict()` includes `namespace` in `jobs/model.py`
-- [ ] **File**: `packages/archon-search/archon_search/jobs/model.py`
+- [x] **File**: `packages/archon-search/archon_search/jobs/model.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Add `"namespace": job.namespace` to the dict returned by `job_to_dict()`.
