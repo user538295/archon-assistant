@@ -198,7 +198,7 @@ async def migrate_namespace(self) -> None:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "test_meta_schema_includes_namespace" -v`
 
 #### Task 2.2 — `_row_to_meta()` reads `namespace` safely
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Change the `_row_to_meta()` static method to read `namespace` from the row dict using `row.get("namespace", DEFAULT_NAMESPACE)` — not `row["namespace"]`
