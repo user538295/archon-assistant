@@ -324,7 +324,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "delete_collection_meta" -v`
 
 #### Task 1.5 — `update_collection_meta()` namespace validation + cross-namespace overwrite protection in `store.py`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - At the top of `update_collection_meta()`, add `_validate_namespace(meta.namespace)`. This raises `ValueError` on misconfigured namespace before any SQL is executed.
