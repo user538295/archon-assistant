@@ -155,7 +155,7 @@ async def migrate_namespace(self) -> None:
   - Checkpoint: N/A
 
 #### Task 1.1 — Add `namespace` to `CollectionMeta`
-- [ ] **File**: `packages/archon-search/archon_search/collection_meta.py`
+- [x] **File**: `packages/archon-search/archon_search/collection_meta.py`
 - **Depends on**: nothing
 - **Description**:
   - Add `namespace: str = DEFAULT_NAMESPACE` as a field on the `CollectionMeta` dataclass, after `described_at_doc_count` — import `DEFAULT_NAMESPACE` from `archon_search.constants`
