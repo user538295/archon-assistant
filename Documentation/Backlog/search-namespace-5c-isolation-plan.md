@@ -435,7 +435,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_jobs.py -k "job_to_dict" -v`
 
 #### Task 3.3 — `JobStore.create(namespace)` parameter
-- [ ] **File**: `packages/archon-search/archon_search/jobs/store.py`
+- [x] **File**: `packages/archon-search/archon_search/jobs/store.py`
 - **Depends on**: Task 3.1
 - **Description**:
   - Change `def create(self) -> IngestJob` to `def create(self, namespace: str = DEFAULT_NAMESPACE) -> IngestJob`.
