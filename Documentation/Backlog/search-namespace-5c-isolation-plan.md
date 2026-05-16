@@ -471,7 +471,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
 
 #### Task 3.5 — `_run_pipeline()` + `SearchPipeline.ingest_directory()` + `SearchPipeline.recompute_collection_meta()` + `SearchPipeline.get_collection_meta()` namespace propagation
 
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`, `packages/archon-search/archon_search/pipeline.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`, `packages/archon-search/archon_search/pipeline.py`
 - **Depends on**: Task 1.3, Task 1.5, Task 3.4
 - **Description**:
   - In `_run_pipeline(job_id, store, body, pipeline_fn=None)`: add `namespace: str = DEFAULT_NAMESPACE` parameter. Forward it to `pipeline_fn` as a keyword arg: call `pipeline_fn(job_id, store, body, namespace=namespace)`.
