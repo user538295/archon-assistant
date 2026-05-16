@@ -48,19 +48,19 @@ Every collection record carries a `namespace: str` field defaulted to `"default"
 ---
 
 ## Acceptance criteria
-- [ ] `CollectionMeta.namespace` field exists with default `"default"`
-- [ ] `CollectionInfo.namespace` field exists with default `"default"`
-- [ ] `_meta_schema()` includes `namespace` column — fresh install creates table with column
-- [ ] `update_collection_meta()` writes `namespace` value to the row
-- [ ] `_row_to_meta()` returns `namespace="default"` for rows missing the key
-- [ ] `list_collections()` returns `CollectionInfo` with `namespace="default"`
-- [ ] `migrate_namespace()` is idempotent: calling it twice does not raise
-- [ ] `migrate_namespace()` skips tables when `_archon_collection_meta` does not exist
-- [ ] `migrate_namespace()` is a no-op when `namespace` column already exists
-- [ ] Migration wired into lifespan before first request is handled
-- [ ] `GET /collections/` response includes `"namespace": "default"` per entry
-- [ ] `GET /collections/{name}` response includes `"namespace": "default"`
-- [ ] All existing tests pass unchanged
+- [x] `CollectionMeta.namespace` field exists with default `"default"`
+- [x] `CollectionInfo.namespace` field exists with default `"default"`
+- [x] `_meta_schema()` includes `namespace` column — fresh install creates table with column
+- [x] `update_collection_meta()` writes `namespace` value to the row
+- [x] `_row_to_meta()` returns `namespace="default"` for rows missing the key
+- [x] `list_collections()` returns `CollectionInfo` with `namespace="default"`
+- [x] `migrate_namespace()` is idempotent: calling it twice does not raise
+- [x] `migrate_namespace()` skips tables when `_archon_collection_meta` does not exist
+- [x] `migrate_namespace()` is a no-op when `namespace` column already exists
+- [x] Migration wired into lifespan before first request is handled
+- [x] `GET /collections/` response includes `"namespace": "default"` per entry
+- [x] `GET /collections/{name}` response includes `"namespace": "default"`
+- [x] All existing tests pass unchanged
 
 ---
 
@@ -323,7 +323,7 @@ except Exception as exc:
 > **Releasable**: after this phase — all tests pass, feature is shippable.
 
 #### Task 5.1 — Full test suite
-- [ ] **File**: N/A (verification only)
+- [x] **File**: N/A (verification only)
 - **Depends on**: Tasks 0.1, 1.1, 1.2, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1, 4.2
 - **Description**:
   - Run full test suite; resolve any regressions
