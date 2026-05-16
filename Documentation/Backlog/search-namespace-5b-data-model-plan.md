@@ -294,7 +294,7 @@ except Exception as exc:
 > **Releasable**: after Task 4.2 — both collection list and detail endpoints return `"namespace": "default"`; 5c can rely on the field being present in all responses.
 
 #### Task 4.1 — `GET /collections/` response includes `namespace`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: nothing (independent of store tasks — response dict is built inline)
 - **Description**:
   - In `list_collections()` handler, add `"namespace": DEFAULT_NAMESPACE` to the `entry` dict constructed for each collection — import `DEFAULT_NAMESPACE` from `constants.py`
