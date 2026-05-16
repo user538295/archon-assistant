@@ -276,7 +276,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_constants.py -v`
 
 #### Task 1.2 — `SearchConfig.namespaces` + `[namespaces]` parsing in `config.py`
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - Add `namespaces: dict[str, str] = field(default_factory=dict)` to `SearchConfig` after the existing fields (after `telemetry`).
