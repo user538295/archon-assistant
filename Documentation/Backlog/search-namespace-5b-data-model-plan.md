@@ -211,7 +211,7 @@ async def migrate_namespace(self) -> None:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "test_row_to_meta" -v`
 
 #### Task 2.3 — `update_collection_meta()` writes `namespace`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 2.1, Task 2.2
 - **Description**:
   - In `update_collection_meta()`, add `"namespace": meta.namespace` to the dict passed to `table.add()`
