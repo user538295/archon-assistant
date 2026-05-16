@@ -391,7 +391,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_middleware_auth.py -v`
 
 #### Task 2.2 — `create_app()` passes `namespaces` to middleware
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 2.1, Task 1.2
 - **Description**:
   - Change the `app.add_middleware(APIKeyMiddleware, api_key=key)` call to `app.add_middleware(APIKeyMiddleware, api_key=key, namespaces=config.namespaces)`.
