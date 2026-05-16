@@ -364,7 +364,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
 > **Releasable**: after Task 2.2 — every HTTP request has `request.state.namespace` set; route handlers can begin enforcing it.
 
 #### Task 2.1 — `APIKeyMiddleware` multi-key namespace resolution
-- [ ] **File**: `packages/archon-search/archon_search/server/middleware_auth.py`
+- [x] **File**: `packages/archon-search/archon_search/server/middleware_auth.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add `namespaces: dict[str, str] | None = None` parameter to `__init__`. Store as `self._namespaces = namespaces or {}`. (Do NOT use a mutable default argument `= {}` — it is shared across all instances.)
