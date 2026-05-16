@@ -168,7 +168,7 @@ async def migrate_namespace(self) -> None:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "test_collection_meta_namespace" -v`
 
 #### Task 1.2 — Add `namespace` to `CollectionInfo`
-- [ ] **File**: `packages/archon-search/archon_search/_types.py`
+- [x] **File**: `packages/archon-search/archon_search/_types.py`
 - **Depends on**: nothing (independent of Task 1.1)
 - **Description**:
   - Add `namespace: str = DEFAULT_NAMESPACE` as a field on the `CollectionInfo` dataclass, after `chunk_count` — import `DEFAULT_NAMESPACE` from `archon_search.constants`
