@@ -409,7 +409,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
 > **Releasable**: after Task 3.5 — ingest tasks carry caller namespace through the full pipeline lifecycle. (Tasks 3.1–3.4 are intermediate steps; Task 3.5 completes the namespace threading through `_run_pipeline` and `SearchPipeline`.)
 
 #### Task 3.1 — `IngestJob.namespace` field in `types.py`
-- [ ] **File**: `packages/archon-search/archon_search/types.py`
+- [x] **File**: `packages/archon-search/archon_search/types.py`
 - **Depends on**: nothing (independent)
 - **Description**:
   - Add `namespace: str = DEFAULT_NAMESPACE` to `IngestJob` dataclass.
