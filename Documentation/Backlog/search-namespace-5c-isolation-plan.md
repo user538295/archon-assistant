@@ -501,7 +501,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
 > **Releasable**: after this phase, all `/collections/*` endpoints enforce namespace isolation.
 
 #### Task 4.1 — `list_collections` namespace filter (`GET /collections/`)
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: Task 2.2, Task 1.3
 - **Description**:
   - Convert handler from `def list_collections` to `async def list_collections`.
