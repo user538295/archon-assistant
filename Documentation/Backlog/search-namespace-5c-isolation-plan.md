@@ -342,7 +342,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store.py -k "update_collection_meta" -v`
 
 #### Task 1.6 — `list_collections()` reads namespace from meta in `store.py`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - In `list_collections()`, remove the hardcoded `namespace=DEFAULT_NAMESPACE` from the `CollectionInfo(...)` constructor (currently line ~225).
