@@ -306,7 +306,7 @@ except Exception as exc:
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_collections.py -k "test_routes_list_collections_namespace" -v`
 
 #### Task 4.2 — `GET /collections/{name}` response includes `namespace`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: nothing (independent)
 - **Description**:
   - In `get_collection_info()` handler, add `"namespace": DEFAULT_NAMESPACE` to the `data` dict — import `DEFAULT_NAMESPACE` from `constants.py`
