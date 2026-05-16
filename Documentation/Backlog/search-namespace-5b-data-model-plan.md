@@ -241,7 +241,7 @@ async def migrate_namespace(self) -> None:
 > **Releasable**: after Task 3.1 — existing databases are migrated on startup; migration is wired before any request can observe pre-migration state.
 
 #### Task 3.1 — `SearchStore.migrate_namespace()` method
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 2.1 (schema context), Task 2.2 (safe deserialization)
 - **Description**:
   - Add `async def migrate_namespace(self) -> None` method to `SearchStore`
