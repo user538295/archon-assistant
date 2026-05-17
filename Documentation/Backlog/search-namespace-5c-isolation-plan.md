@@ -539,7 +539,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_collections.py -k "add_collection" -v`
 
 #### Task 4.3 — `remove_collection` namespace check + meta cleanup (`DELETE /collections/{name}`)
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: Task 2.2, Task 1.3, Task 1.4
 - **Description**:
   - Read `ns = request.state.namespace`.
