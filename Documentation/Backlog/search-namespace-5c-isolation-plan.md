@@ -689,7 +689,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
 > **Releasable**: after Task 6.1 — full two-namespace isolation verified end-to-end.
 
 #### Task 6.1 — Two-namespace isolation integration test
-- [ ] **File**: `packages/archon-search/tests/test_routes_e2e.py` (extend existing)
+- [x] **File**: `packages/archon-search/tests/test_routes_e2e.py` (extend existing)
 - **Depends on**: all Phase 4 and Phase 5 tasks
 - **Description**:
   - Set up: two API keys (`"keyA"`, `"keyB"`), two namespaces (`"tenantA"`, `"tenantB"`), `config.namespaces = {"keyA": "tenantA", "keyB": "tenantB"}`.
