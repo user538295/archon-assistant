@@ -606,7 +606,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_routes_search.py -v`
 
 #### Task 5.2 — Job namespace checks (`GET/DELETE /jobs/{job_id}`)
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 2.2, Task 3.1, Task 3.2
 - **Description**:
   - In `get_job`: after `job = store.get(job_id)` (404 if None), add: `if job.namespace != request.state.namespace: raise HTTPException(status_code=404, detail="Job not found")`.
