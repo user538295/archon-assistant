@@ -652,7 +652,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_route.py -v`
 
 #### Task 5.5 — `GET /status` namespace filter
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_status.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_status.py`
 - **Depends on**: Task 2.2, Task 1.3
 - **Description**:
   - Convert handler from `def status` to `async def status` (required for async store call).
