@@ -588,7 +588,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
 > **Releasable**: after this phase, all endpoints enforce namespace isolation end-to-end.
 
 #### Task 5.1 — `POST /search` fix: shared store + namespace check
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_search.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_search.py`
 - **Depends on**: Task 2.2, Task 1.3
 - **Description**:
   - Remove the fresh `SearchStore(config.db_path)` construction (current lines 64–65) and the `try/finally` block that disconnects it.
