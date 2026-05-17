@@ -621,7 +621,7 @@ All tests are in `packages/archon-search/tests/` unless noted.
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_jobs.py -v`
 
 #### Task 5.3 — `POST /ingest` namespace propagation
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 2.2, Task 3.3, Task 3.4
 - **Description**:
   - In the `ingest` route handler, read `ns = request.state.namespace`.
