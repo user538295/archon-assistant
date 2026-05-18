@@ -202,7 +202,7 @@ class McpErrorResponse(TypedDict):
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_middleware_auth.py -v`
 
 #### Task 1.2 — Custom OpenAPI schema: SecurityScheme + per-path security annotations
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Add a `_configure_openapi(app: FastAPI) -> None` function that overrides `app.openapi` with a closure that:
@@ -221,7 +221,7 @@ class McpErrorResponse(TypedDict):
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 1.3 — CORS middleware
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: nothing (independent of 1.1 and 1.2)
 - **Description**:
   - Add `from fastapi.middleware.cors import CORSMiddleware`
@@ -507,7 +507,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_pipeline.py -v`
 
 #### Task 3.3 — Wire `SearchPipeline` into `create_app()`
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`
 - **Depends on**: Task 3.1, Task 3.2
 - **Description**:
   - Import: `from archon_search.pipeline import SearchPipeline`
@@ -577,7 +577,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_routes_search.py -v`
 
 #### Task 3.5 — Wire real pipeline ingest into async job execution
-- [ ] **File**: `packages/archon-search/archon_search/server/app.py`, `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/app.py`, `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 3.3
 - **Description**:
   - In `app.py`, add a factory that creates the `ingest_pipeline` callable for the job executor:
