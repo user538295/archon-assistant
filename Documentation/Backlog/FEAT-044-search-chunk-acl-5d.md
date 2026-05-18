@@ -168,7 +168,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_constants_acl.py -v`
 
 #### Task 1.2 — Add `acl` field to `ChunkRecord` and `SearchResult`
-- [ ] **File**: `packages/archon-search/archon_search/_types.py`
+- [x] **File**: `packages/archon-search/archon_search/_types.py`
 - **Depends on**: nothing
 - **Description**:
   - `ChunkRecord`: add `acl: list[str] | None = None` as the last field (default preserves all existing construction sites)
