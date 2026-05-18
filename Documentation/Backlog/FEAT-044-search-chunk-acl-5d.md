@@ -155,7 +155,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 > **Releasable**: after Task 1.5 — startup migration runs cleanly against pre-existing databases; no behavior change yet
 
 #### Task 1.1 — Reserve `deny-all` as a forbidden namespace name
-- [ ] **File**: `packages/archon-search/archon_search/constants.py`
+- [x] **File**: `packages/archon-search/archon_search/constants.py`
 - **Depends on**: nothing
 - **Description**:
   - In `_validate_namespace(name: str) -> None`, add: `if name == "deny-all": raise ValueError("Namespace name 'deny-all' is reserved and cannot be used.")`
