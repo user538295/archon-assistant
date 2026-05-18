@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from archon.ai.decomposer import TaskOutput
+from archon.ai.search_client import SearchQueryResult
 from archon.ai.search_context_provider import SearchContextProvider
 from archon.config.loader import SearchConfig
 
@@ -139,8 +140,8 @@ async def test_full_rag_routing_chain() -> None:
         for name in routable
     }
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
-        return search_results.get(collection, [])
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return SearchQueryResult(results=search_results.get(collection, []), acl_filtered=False)
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "test query")
@@ -223,8 +224,8 @@ async def test_full_rag_routing_tier1_chain() -> None:
         for name in routable
     }
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
-        return search_results.get(collection, [])
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return SearchQueryResult(results=search_results.get(collection, []), acl_filtered=False)
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "test query")
