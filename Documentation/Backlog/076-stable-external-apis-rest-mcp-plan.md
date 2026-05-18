@@ -363,7 +363,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 2.2 — Type `/indexing-state` endpoint
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_state.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_state.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - Change `async def indexing_state(request: Request) -> dict:` to return `IndexingStateResponse`
