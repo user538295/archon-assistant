@@ -57,19 +57,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 
 ## Acceptance criteria
 
-- [ ] Pre-existing chunks are treated as `acl: null` (open) after startup migration; existing deployments with no ACL annotations see zero behavior change.
-- [ ] An operator can set `_acl: tenantA,tenantB` in YAML front matter; only callers with namespace `tenantA` or `tenantB` receive those chunks.
-- [ ] An operator can set `acl: []` (deny-all) via front matter `_acl: []` or via a sidecar containing only `deny-all`; no caller receives those chunks.
-- [ ] `.acl` sidecar files never appear as search results.
-- [ ] `_acl` front matter values do not appear in indexed chunk text.
-- [ ] `acl_filtered: true` is set on the response when any candidate was dropped; `false` when no candidates were dropped.
-- [ ] Adjacent chunks (`fetch_adjacent_chunks`) are ACL-filtered before inclusion in `SearchPipeline.search_with_context()` output (see Task 3.4b).
-- [ ] `acl_protected_count + acl_open_count` equals the actual total number of chunks in any collection (verified via `acl_protected_count + acl_open_count` from `GET /collections/{name}`, NOT via the `chunk_count` field which is hardcoded to 0 in the current implementation).
-- [ ] `SearchClient.search()` correctly unwraps `results` from the `SearchResponse` envelope; does not return dict keys on error.
-- [ ] `deny-all` is rejected as a namespace name at validation time.
-- [ ] ACL matching is case-sensitive: `"TenantA"` does not match `"tenanta"`.
-- [ ] Re-ingesting a document with a changed `_acl` value updates all existing chunks for that `doc_id` to the new ACL.
-- [ ] Missing `request.state.namespace` (middleware bug) → all ACL-protected chunks denied; only `acl: null` chunks returned.
+> Acceptance criteria are verified in the final task. See [Task 6.1 — Final verification & documentation update].
 
 ---
 
@@ -158,13 +146,6 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 ### Modified SearchContextProvider (`archon/ai/search_context_provider.py`)
 
 - Update call site of `search_client.search()` to unpack `SearchQueryResult`; log `acl_filtered=True` at DEBUG level
-
----
-
-## Documentation update
-
-- [ ] `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md`, section "5d", mark implemented once complete
-- [ ] `CLAUDE.md`, section `search_client.py`: update `search()` description to reflect `SearchQueryResult` return type
 
 ---
 
@@ -558,3 +539,34 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Unit: `test_context_provider_acl_filtered_false_no_log`
   - Unit: `test_context_provider_passes_results_through_unchanged`
   - Checkpoint: `uv run pytest tests/ai/test_search_context_provider_acl.py -v`
+
+---
+
+### Final Phase — Verification & Documentation
+
+#### Task 6.1 — Final verification & documentation update
+- [ ] **File**: N/A (agent task)
+- **Depends on**: all prior tasks
+- **Description**:
+  - Spawn an agent to discover all documentation in the project (READMEs, ADRs, API docs, architecture docs, user guides, CLAUDE.md) and update every file whose content is affected by the changes delivered in this plan. The agent must not update docs that are unrelated.
+  - Files known to require updates: `Documentation/Backlog/FEAT-037-search-world-class-roadmap.md` (mark item 5d implemented); `CLAUDE.md` section `search_client.py` (update `search()` return type to `SearchQueryResult`).
+  - Verify all acceptance criteria below are met before marking this task complete.
+- **Releasable**: after this task, the feature is fully verified and all documentation reflects the delivered implementation.
+- **Acceptance criteria** (must all pass):
+  - Pre-existing chunks are treated as `acl: null` (open) after startup migration; existing deployments with no ACL annotations see zero behavior change.
+  - An operator can set `_acl: tenantA,tenantB` in YAML front matter; only callers with namespace `tenantA` or `tenantB` receive those chunks.
+  - An operator can set `acl: []` (deny-all) via front matter `_acl: []` or via a sidecar containing only `deny-all`; no caller receives those chunks.
+  - `.acl` sidecar files never appear as search results.
+  - `_acl` front matter values do not appear in indexed chunk text.
+  - `acl_filtered: true` is set on the response when any candidate was dropped; `false` when no candidates were dropped.
+  - Adjacent chunks (`fetch_adjacent_chunks`) are ACL-filtered before inclusion in `SearchPipeline.search_with_context()` output (see Task 3.4b).
+  - `acl_protected_count + acl_open_count` equals the actual total number of chunks in any collection (verified via `GET /collections/{name}`, NOT via the `chunk_count` field which is hardcoded to 0 in the current implementation).
+  - `SearchClient.search()` correctly unwraps `results` from the `SearchResponse` envelope; does not return dict keys on error.
+  - `deny-all` is rejected as a namespace name at validation time.
+  - ACL matching is case-sensitive: `"TenantA"` does not match `"tenanta"`.
+  - Re-ingesting a document with a changed `_acl` value updates all existing chunks for that `doc_id` to the new ACL.
+  - Missing `request.state.namespace` (middleware bug) → all ACL-protected chunks denied; only `acl: null` chunks returned.
+  - All tests pass: `uv run pytest` exits 0.
+  - Test coverage ≥ 85%: `uv run pytest --cov=archon_search --cov-fail-under=85`.
+- **Tests (TDD)**: N/A — this is a verification and documentation task.
+- **Checkpoint**: manually confirm every acceptance criterion above is checked.
