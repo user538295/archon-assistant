@@ -182,7 +182,7 @@ class McpErrorResponse(TypedDict):
 > **Releasable**: after Task 1.4, the OpenAPI spec is publicly accessible, accurately annotates auth requirements on all endpoints, and all response schemas are registered. The spec is a first-class deliverable after this phase.
 
 #### Task 1.1 — Auth middleware: exempt spec endpoints from token requirement
-- [ ] **File**: `packages/archon-search/archon_search/server/middleware_auth.py`
+- [x] **File**: `packages/archon-search/archon_search/server/middleware_auth.py`
 - **Depends on**: nothing
 - **Description**:
   - Replace `_EXEMPT_METHOD = "GET"` and `_EXEMPT_PATH = "/health"` with `_EXEMPT_PATHS: frozenset[str] = frozenset({"/health", "/docs", "/openapi.json", "/redoc"})`
