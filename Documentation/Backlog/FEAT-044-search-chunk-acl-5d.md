@@ -220,7 +220,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 > **Releasable**: after Task 2.4 — documents with `_acl` annotations are ingested with ACL metadata; sidecar files are excluded from content indexing
 
 #### Task 2.1 — ACL parsing utilities: `parse_acl_value()` and `is_acl_namespace_valid()`
-- [ ] **File**: `packages/archon-search/archon_search/acl.py` (new file)
+- [x] **File**: `packages/archon-search/archon_search/acl.py` (new file)
 - **Depends on**: Task 1.1
 - **Description**:
   - `is_acl_namespace_valid(name: str) -> bool`: returns `_NAMESPACE_RE.fullmatch(name) is not None and name != "deny-all"` (import `_NAMESPACE_RE` from `constants`)
