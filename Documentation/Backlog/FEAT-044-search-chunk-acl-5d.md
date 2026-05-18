@@ -514,7 +514,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `uv run pytest tests/ai/test_search_client_acl.py -v`
 
 #### Task 5.2 — Update `SearchContextProvider` to handle `acl_filtered`
-- [ ] **File**: `archon/ai/search_context_provider.py`
+- [x] **File**: `archon/ai/search_context_provider.py`
 - **Depends on**: Task 5.1
 - **Description**:
   - Locate the call site of `search_client.search(...)` in `SearchContextProvider`

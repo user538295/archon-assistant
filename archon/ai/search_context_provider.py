@@ -179,8 +179,10 @@ class SearchContextProvider:
 
         async def _bounded_search(collection: str) -> list[SearchResult]:
             async with semaphore:
-                raw = await self._search_client.search(collection, query, cfg.top_k_return)
-                return [SearchResult(**r) for r in raw.results]
+                result = await self._search_client.search(collection, query, cfg.top_k_return)
+                if result.acl_filtered:
+                    logger.debug("search: acl_filtered=True for collection %s", collection)
+                return [SearchResult(**r) for r in result.results]
 
         tasks = [_bounded_search(col) for col in to_search]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)
