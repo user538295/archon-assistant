@@ -80,8 +80,8 @@ Quick reference: roadmap items → their brief, plan, and current status. Items 
 | 3    | Real metadata schema                      | ✅ Complete (FEAT-038)        | [Brief](../Completed/search-product-separation-brief.md)                                                                           | [FEAT-038](../Completed/FEAT-038-search-product-separation.md) — Phase 6 Task 6.1                                                                                                                                                                                        |
 | 4    | Evaluation harness + data-collection loop | ✅ Closed (see decision note) | [FEAT-039 brief](FEAT-039-search-evaluation-harness-brief.md) · [FEAT-039b brief](FEAT-039b-search-telemetry-and-privacy-brief.md) | [FEAT-039 plan](FEAT-039-search-evaluation-harness-plan-codex.md) · [FEAT-039b plan](FEAT-039b-search-telemetry-and-privacy-plan.md) · [FEAT-039c plan](FEAT-039c-search-telemetry-observability-plan.md) · [FEAT-039d plan](FEAT-039d-telemetry-entries-client-plan.md) |
 | 5a   | API key authentication                    | ✅ Complete (FEAT-041)        | [Brief](search-auth-5a-api-key-brief.md)                                                                                           | [Plan](search-auth-5a-api-key-plan.md)                                                                                                                                                                                                                                   |
-| 5b   | Namespace data model                      | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
-| 5c   | Namespace isolation at storage + query    | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
+| 5b   | Namespace data model                      | ✅ Complete (FEAT-042)        | [Brief](../Completed/search-namespace-5b-data-model-brief.md)                                                                      | [Plan](../Completed/search-namespace-5b-data-model-plan.md)                                                                                                                                                                                                              |
+| 5c   | Namespace isolation at storage + query    | ✅ Complete (FEAT-043)        | [Brief](../Completed/search-namespace-5c-isolation-brief.md)                                                                       | [Plan](../Completed/search-namespace-5c-isolation-plan.md)                                                                                                                                                                                                               |
 | 5d   | Document/chunk-level security trimming    | ✅ Complete (FEAT-044)        | [Brief](FEAT-044-search-chunk-acl-5d.md)                                                                                           | [Plan](FEAT-044-search-chunk-acl-5d.md)                                                                                                                                                                                                                                  |
 | 6    | Stable external APIs: REST + MCP          | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
 | 7–36 | Priority 1–5 items                        | 📋 Not started               | —                                                                                                                                  | —                                                                                                                                                                                                                                                                        |
@@ -264,6 +264,8 @@ Split into four independent increments that can be briefed and implemented separ
 
 #### 5b. Namespace data model
 
+> **Status: ✅ Complete (FEAT-042)** — [Brief](../Completed/search-namespace-5b-data-model-brief.md) · [Plan](../Completed/search-namespace-5b-data-model-plan.md)
+
 **Why second**: Namespaces must exist as a first-class concept in the data model before they can be enforced anywhere. This increment is purely additive — it adds the field, migrates existing data (all existing collections move to a default namespace), and documents the schema. No enforcement yet.
 
 **What to do**
@@ -281,6 +283,8 @@ Split into four independent increments that can be briefed and implemented separ
 - Unit tests cover schema creation, migration, and round-trip read/write with namespace.
 
 #### 5c. Namespace isolation at storage and query layers
+
+> **Status: ✅ Complete (FEAT-043)** — [Brief](../Completed/search-namespace-5c-isolation-brief.md) · [Plan](../Completed/search-namespace-5c-isolation-plan.md)
 
 **Why third**: Once the data model has namespaces, enforce them. After this increment a request scoped to namespace A cannot see or mutate namespace B's collections.
 
@@ -742,8 +746,8 @@ If only one list is used for planning, use this order:
 3. Add a real metadata schema.
 4. Build an evaluation harness and data-collection loop. ✅ Closed — observability layer in place; feedback loop deferred until a quality gap is observed.
 5a. Add API key authentication.
-5b. Add namespace data model.
-5c. Add namespace isolation at storage and query layers.
+5b. Add namespace data model. ✅ Complete (FEAT-042)
+5c. Add namespace isolation at storage and query layers. ✅ Complete (FEAT-043)
 5d. Add document/chunk-level security trimming.
 6. Define stable external APIs: REST + MCP.
 7. Add metadata filters at search time.
