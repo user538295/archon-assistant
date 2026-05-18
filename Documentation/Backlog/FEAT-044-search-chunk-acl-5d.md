@@ -324,7 +324,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_acl.py -v`
 
 #### Task 2.4 — Integrate ACL into `ingest_file()` + filter `.acl` sidecar files
-- [ ] **File**: `packages/archon-search/archon_search/pipeline.py`
+- [x] **File**: `packages/archon-search/archon_search/pipeline.py`
 - **Depends on**: Tasks 1.2, 2.2
 - **Description**:
   - **Skip `.acl` sidecar files**: wherever the ingest pipeline collects files for indexing (directory scan in `_default_ingest_task` or `ingest_directory()`), add a guard: `if path.suffix == ".acl" or path.name.endswith(".acl"): continue` (skip, do not log — sidecar files are expected, not errors)
