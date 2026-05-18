@@ -378,7 +378,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 2.3 — Type `/collections/` GET (list) endpoint
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - Change `list_collections` to `response_model=list[CollectionSummary]`
@@ -391,7 +391,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 2.4 — Type `/collections/{name}` GET (detail) endpoint
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - Change `get_collection_info` to `response_model=CollectionDetail`
