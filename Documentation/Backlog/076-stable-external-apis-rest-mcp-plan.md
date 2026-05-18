@@ -443,7 +443,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
 > **Releasable**: after Task 3.4, REST search delegates to the shared pipeline — the search surface is unified. After Task 3.5, real ingest is wired. Full releasability after Task 3.5.
 
 #### Task 3.1 — Add `SearchPipelineResult` and update `search()` return type
-- [ ] **File**: `packages/archon-search/archon_search/pipeline.py`
+- [x] **File**: `packages/archon-search/archon_search/pipeline.py`
 - **Depends on**: nothing
 - **Description**:
   - Add at module level (after imports, before `SearchPipeline` class):
