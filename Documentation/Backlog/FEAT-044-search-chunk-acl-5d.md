@@ -387,7 +387,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store_acl.py::test_fetch_adjacent -v`
 
 #### Task 3.3 — `SearchResponse` Pydantic schema
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_search.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_search.py`
 - **Depends on**: nothing (pure schema definition)
 - **Description**:
   - Add `class SearchResponse(BaseModel): results: list[SearchResultSchema]; acl_filtered: bool` to `routes_search.py`
