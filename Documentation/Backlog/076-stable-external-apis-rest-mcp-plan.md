@@ -349,7 +349,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
 ```
 
 #### Task 2.1 — Type `/health` and `/status` endpoints
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_health.py`, `packages/archon-search/archon_search/server/routes_status.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_health.py`, `packages/archon-search/archon_search/server/routes_status.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - `routes_health.py`: change `async def health() -> dict:` to `async def health() -> HealthResponse:` with `response_model=HealthResponse`; return `HealthResponse(status="running", version=_VERSION)` instead of bare dict
