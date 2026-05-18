@@ -427,7 +427,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_search_acl.py -v`
 
 #### Task 3.4b — Apply ACL filter in `SearchPipeline.search_with_context()` and `SearchPipeline.search()`
-- [ ] **File**: `packages/archon-search/archon_search/pipeline.py`
+- [x] **File**: `packages/archon-search/archon_search/pipeline.py`
 - **Depends on**: Tasks 2.3, 3.1, 3.2
 - **Description**:
   - **Add `namespace: str` parameter** to both `SearchPipeline.search(query: str, collection: str)` and `SearchPipeline.search_with_context(query: str, collection: str, context_window: int = 1)`. All callers of these methods must be updated to pass namespace.
