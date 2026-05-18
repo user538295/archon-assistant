@@ -448,7 +448,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 > **Releasable**: after Task 4.2 — `GET /collections/{name}` exposes ACL coverage statistics
 
 #### Task 4.1 — `get_acl_stats()` in `SearchStore`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - `async def get_acl_stats(self, collection: str) -> tuple[int, int]`:
