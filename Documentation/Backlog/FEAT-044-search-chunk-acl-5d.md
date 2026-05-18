@@ -360,7 +360,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 > **Releasable**: after Task 3.4b — `POST /search` enforces ACL filtering and returns the `SearchResponse` envelope; pipeline-level ACL filtering is also live
 
 #### Task 3.1 — Update `hybrid_search()` to return `acl` field in `SearchResult`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Tasks 1.2, 1.3
 - **Description**:
   - In `hybrid_search()`, update the LanceDB scan/query to also select the `acl` column (add `"acl"` to the column selection list, if any; or verify it is included by default in the full-row scan)
