@@ -403,7 +403,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 2.5 — Type `/collections/` POST, `/collections/{name}/reindex`, `/ingest` (job-returning routes)
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`, `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`, `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - All three endpoints return `job_to_dict(job)` — change each to return `JobResponse(**job_to_dict(job))` with `response_model=JobResponse, status_code=202`
@@ -419,7 +419,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 2.6 — Type `/collections/{name}` DELETE and `/jobs/{id}` GET/DELETE
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`, `packages/archon-search/archon_search/server/routes_jobs.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`, `packages/archon-search/archon_search/server/routes_jobs.py`
 - **Depends on**: Task 1.4
 - **Description**:
   - `remove_collection` in `routes_collections.py`: change `return JSONResponse(content={"name": name, "deleted": True})` → `return DeleteResponse(name=name, deleted=True)`; add `response_model=DeleteResponse`
