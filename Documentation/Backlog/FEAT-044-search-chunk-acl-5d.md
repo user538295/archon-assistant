@@ -401,7 +401,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_routes_search_acl.py::test_search_response_schema -v`
 
 #### Task 3.4 — Apply ACL filter and `SearchResponse` envelope in POST /search
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_search.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_search.py`
 - **Depends on**: Tasks 2.3, 3.1, 3.3
 - **Description**:
   - Update `search()` route: `response_model=SearchResponse`; return type annotation `-> SearchResponse | JSONResponse`
