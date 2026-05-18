@@ -467,7 +467,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store_acl.py::test_get_acl_stats -v`
 
 #### Task 4.2 — Expose ACL stats in `GET /collections/{name}`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_collections.py`
 - **Depends on**: Task 4.1
 - **Description**:
   - In `get_collection_info()`, after existing collection meta fetch, call `acl_protected, acl_open = await store.get_acl_stats(name)`
