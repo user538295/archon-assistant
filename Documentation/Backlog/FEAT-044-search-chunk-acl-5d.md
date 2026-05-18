@@ -182,7 +182,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_types_acl.py -v`
 
 #### Task 1.3 — Add `acl` column to LanceDB chunk table schema
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.2
 - **Description**:
   - In `SearchStore._schema(embedding_dim: int) -> pa.Schema`, append `pa.field("acl", pa.list_(pa.utf8()), nullable=True)` before returning
