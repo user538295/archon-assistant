@@ -195,7 +195,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store_acl.py::test_new_collection_has_acl_column -v`
 
 #### Task 1.4 — Startup migration: `migrate_acl()`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Task 1.3
 - **Description**:
   - Add `async def migrate_acl(self) -> None` to `SearchStore`
