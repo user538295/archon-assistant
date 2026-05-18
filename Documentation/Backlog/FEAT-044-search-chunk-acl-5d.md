@@ -374,7 +374,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_store_acl.py::test_ingest_and_hybrid_search -v`
 
 #### Task 3.2 — Update `fetch_adjacent_chunks()` to return `acl` field in `ChunkRecord`
-- [ ] **File**: `packages/archon-search/archon_search/store.py`
+- [x] **File**: `packages/archon-search/archon_search/store.py`
 - **Depends on**: Tasks 1.2, 1.3
 - **Description**:
   - In `fetch_adjacent_chunks()`, update the LanceDB scan to include the `acl` column
