@@ -236,7 +236,7 @@ class McpErrorResponse(TypedDict):
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_openapi_schema.py -v`
 
 #### Task 1.4 — Shared REST response schemas module
-- [ ] **File**: `packages/archon-search/archon_search/server/schemas.py` (new)
+- [x] **File**: `packages/archon-search/archon_search/server/schemas.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - Define all Pydantic models that will be used as `response_model` in Phase 2 tasks:
