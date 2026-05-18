@@ -486,7 +486,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_pipeline.py -v`
 
 #### Task 3.2 — Add `namespace` guard to `get_all_collections_meta`, `list_documents`, `delete_document`
-- [ ] **File**: `packages/archon-search/archon_search/pipeline.py`
+- [x] **File**: `packages/archon-search/archon_search/pipeline.py`
 - **Depends on**: nothing (independent of 3.1)
 - **Description**:
   - `get_all_collections_meta(namespace: str = DEFAULT_NAMESPACE) -> list[CollectionMeta]`:
@@ -500,10 +500,11 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - MCP callers currently pass no namespace → they get `DEFAULT_NAMESPACE` — backward compatible
 - **Releasable**: after this task, MCP and REST can safely use these methods with namespace isolation
 - **Tests (TDD)** — `packages/archon-search/tests/test_pipeline.py`:
-  - Unit: `test_get_all_collections_meta_filters_by_namespace` — with two collections in different namespaces, only the matching namespace's collections returned
-  - Unit: `test_list_documents_wrong_namespace_returns_empty` — listing documents for a collection in a different namespace returns `[]`
-  - Unit: `test_delete_document_wrong_namespace_raises` — deleting from a collection in a wrong namespace raises `ValueError`
-  - Unit: `test_delete_document_correct_namespace_succeeds` — deleting from correct namespace delegates to store
+  - [x] Unit: `test_get_all_collections_meta_filters_by_namespace` — with two collections in different namespaces, only the matching namespace's collections returned
+  - [x] Unit: `test_list_documents_wrong_namespace_returns_empty` — listing documents for a collection in a different namespace returns `[]`
+  - [x] Unit: `test_list_documents_correct_namespace_succeeds` — listing documents for a collection in correct namespace delegates to store
+  - [x] Unit: `test_delete_document_wrong_namespace_raises` — deleting from a collection in a wrong namespace raises `ValueError`
+  - [x] Unit: `test_delete_document_correct_namespace_succeeds` — deleting from correct namespace delegates to store
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_pipeline.py -v`
 
 #### Task 3.3 — Wire `SearchPipeline` into `create_app()`
