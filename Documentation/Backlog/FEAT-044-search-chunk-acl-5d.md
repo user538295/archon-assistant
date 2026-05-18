@@ -256,7 +256,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_acl.py::test_parse_acl -v && uv run pytest tests/test_acl.py::test_is_acl_namespace_valid -v`
 
 #### Task 2.2 — Sidecar reader: `read_acl_sidecar()`
-- [ ] **File**: `packages/archon-search/archon_search/acl.py`
+- [x] **File**: `packages/archon-search/archon_search/acl.py`
 - **Depends on**: Task 2.1
 - **Description**:
   - `read_acl_sidecar(doc_path: Path) -> list[str] | None`:
