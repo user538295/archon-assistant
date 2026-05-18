@@ -180,7 +180,7 @@ class SearchContextProvider:
         async def _bounded_search(collection: str) -> list[SearchResult]:
             async with semaphore:
                 raw = await self._search_client.search(collection, query, cfg.top_k_return)
-                return [SearchResult(**r) for r in raw]
+                return [SearchResult(**r) for r in raw.results]
 
         tasks = [_bounded_search(col) for col in to_search]
         raw_results = await asyncio.gather(*tasks, return_exceptions=True)

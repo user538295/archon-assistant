@@ -486,7 +486,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
 > **Releasable**: after Task 5.2 — the Archon parent handles the new `SearchResponse` envelope correctly; `acl_filtered` is logged at DEBUG
 
 #### Task 5.1 — Update `SearchClient.search()` for `SearchResponse` envelope
-- [ ] **File**: `archon/ai/search_client.py`
+- [x] **File**: `archon/ai/search_client.py`
 - **Depends on**: Task 3.4 — **DEPLOYMENT NOTE**: These two changes MUST be deployed atomically (in the same release). If the server is updated before the client, `SearchClient.search()` will return `["results", "acl_filtered"]` as search results (dict key corruption). The bare-list fallback in Task 5.1 provides client-side protection ONLY when the old server is still running; it does NOT protect against the new server when the client hasn't been updated. Ensure `search_client.py` (Task 5.1) is included in the same release as the archon-search server update (Task 3.4).
 - **Description**:
   - Add `class SearchQueryResult(NamedTuple): results: list[dict[str, Any]]; acl_filtered: bool` near the top of the file (or use `@dataclass` if NamedTuple doesn't fit the module style)

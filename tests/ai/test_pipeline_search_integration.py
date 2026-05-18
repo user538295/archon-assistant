@@ -18,6 +18,7 @@ from archon.ai.classifier import ClassifierResult
 from archon.ai.decomposer import TaskOutput
 from archon.ai.event_mapper import Response
 from archon.ai.pipeline import Pipeline
+from archon.ai.search_client import SearchQueryResult
 from archon_search.types import RouteResponse
 
 
@@ -223,7 +224,7 @@ async def test_pipeline_injects_rag_context_when_search_enabled() -> None:
     mock_search_client.route = AsyncMock(return_value=route_resp)
 
     mock_search_client.search = AsyncMock(
-        return_value=[_make_search_result_json("chunk text", 0.9, "docs")]
+        return_value=SearchQueryResult(results=[_make_search_result_json("chunk text", 0.9, "docs")], acl_filtered=False)
     )
     pipeline, decomposer = _make_pipeline_with_search(search_client=mock_search_client)
 
@@ -267,7 +268,7 @@ async def test_pipeline_pre_context_passed_to_route_task() -> None:
 
     decomposer.route_task = _capturing_rt
     mock_search_client.search = AsyncMock(
-        return_value=[_make_search_result_json("text", 0.8, "col1")]
+        return_value=SearchQueryResult(results=[_make_search_result_json("text", 0.8, "col1")], acl_filtered=False)
     )
 
     await _collect_events(pipeline, "what is X?")
@@ -307,9 +308,9 @@ async def test_pipeline_tier1_searches_all_routable_collections() -> None:
 
     searched_collections: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched_collections.append(collection)
-        return [_make_search_result_json("text", 0.8, collection)]
+        return SearchQueryResult(results=[_make_search_result_json("text", 0.8, collection)], acl_filtered=False)
 
     mock_search_client.search = AsyncMock(side_effect=_mock_search)
     await _collect_events(pipeline, "find X")
@@ -349,9 +350,9 @@ async def test_pipeline_tier3_uses_decomposer_selected_collections() -> None:
 
     searched_collections: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched_collections.append(collection)
-        return [_make_search_result_json("text", 0.8, collection)]
+        return SearchQueryResult(results=[_make_search_result_json("text", 0.8, collection)], acl_filtered=False)
 
     mock_search_client.search = AsyncMock(side_effect=_mock_search)
     await _collect_events(pipeline, "find X")
@@ -384,8 +385,8 @@ async def test_pipeline_rag_detail_string_includes_collection_names() -> None:
     provider = pipeline._search_provider
     assert provider is not None
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
-        return [_make_search_result_json("relevant content", 0.9, collection)]
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return SearchQueryResult(results=[_make_search_result_json("relevant content", 0.9, collection)], acl_filtered=False)
 
     mock_search_client.search = AsyncMock(side_effect=_mock_search)
     await _collect_events(pipeline, "tell me about alpha and beta")

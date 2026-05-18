@@ -1668,8 +1668,8 @@ class TestSearchClientSearch:
 
     @pytest.mark.asyncio
     async def test_search_success(self) -> None:
-        """search() returns list of result dicts on 200 response."""
-        from archon.ai.search_client import SearchClient
+        """search() returns SearchQueryResult with result dicts on 200 response."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
         results_data = [
@@ -1680,15 +1680,15 @@ class TestSearchClientSearch:
         with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
             result = await client.search("col1", "hello")
 
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["doc_id"] == "d1"
-        assert result[0]["score"] == 0.9
+        assert isinstance(result, SearchQueryResult)
+        assert len(result.results) == 1
+        assert result.results[0]["doc_id"] == "d1"
+        assert result.results[0]["score"] == 0.9
 
     @pytest.mark.asyncio
     async def test_search_empty_result(self) -> None:
-        """search() returns [] on 200 response with empty list."""
-        from archon.ai.search_client import SearchClient
+        """search() returns SearchQueryResult with empty list on 200 response with empty list."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
         mock_resp = _mock_response(200, [])
@@ -1696,12 +1696,13 @@ class TestSearchClientSearch:
         with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
             result = await client.search("col1", "query")
 
-        assert result == []
+        assert isinstance(result, SearchQueryResult)
+        assert result.results == []
 
     @pytest.mark.asyncio
     async def test_search_timeout(self, caplog: pytest.LogCaptureFixture) -> None:
-        """search() returns [] and logs WARNING on TimeoutException."""
-        from archon.ai.search_client import SearchClient
+        """search() returns empty SearchQueryResult and logs WARNING on TimeoutException."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
 
@@ -1709,14 +1710,15 @@ class TestSearchClientSearch:
             with caplog.at_level(logging.WARNING, logger="archon"):
                 result = await client.search("col1", "query")
 
-        assert result == []
+        assert isinstance(result, SearchQueryResult)
+        assert result.results == []
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any("col1" in r.message for r in warning_records)
 
     @pytest.mark.asyncio
     async def test_search_connect_error(self, caplog: pytest.LogCaptureFixture) -> None:
-        """search() returns [] and logs DEBUG (not WARNING) on ConnectError."""
-        from archon.ai.search_client import SearchClient
+        """search() returns empty SearchQueryResult and logs DEBUG (not WARNING) on ConnectError."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
 
@@ -1724,7 +1726,8 @@ class TestSearchClientSearch:
             with caplog.at_level(logging.DEBUG, logger="archon"):
                 result = await client.search("col1", "query")
 
-        assert result == []
+        assert isinstance(result, SearchQueryResult)
+        assert result.results == []
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG and "col1" in r.message]
         assert debug_records, "Expected a DEBUG log record for ConnectError"
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "col1" in r.message]
@@ -1732,8 +1735,8 @@ class TestSearchClientSearch:
 
     @pytest.mark.asyncio
     async def test_search_http_500(self) -> None:
-        """search() returns [] on HTTP 500."""
-        from archon.ai.search_client import SearchClient
+        """search() returns empty SearchQueryResult on HTTP 500."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
         mock_resp = _mock_response(500, {})
@@ -1741,12 +1744,13 @@ class TestSearchClientSearch:
         with patch.object(client._http, "post", new=AsyncMock(return_value=mock_resp)):
             result = await client.search("col1", "query")
 
-        assert result == []
+        assert isinstance(result, SearchQueryResult)
+        assert result.results == []
 
     @pytest.mark.asyncio
     async def test_search_http_401_no_double_log(self, caplog: pytest.LogCaptureFixture) -> None:
-        """search() returns [] on HTTP 401; no extra WARNING beyond auth subclass."""
-        from archon.ai.search_client import SearchClient
+        """search() returns empty SearchQueryResult on HTTP 401; no extra WARNING beyond auth subclass."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
         mock_resp = _mock_response(401, {})
@@ -1755,7 +1759,8 @@ class TestSearchClientSearch:
             with caplog.at_level(logging.WARNING, logger="archon"):
                 result = await client.search("col1", "query")
 
-        assert result == []
+        assert isinstance(result, SearchQueryResult)
+        assert result.results == []
         # The search() method itself must NOT log an extra WARNING for 401/403
         extra_warnings = [
             r for r in caplog.records
@@ -1765,8 +1770,8 @@ class TestSearchClientSearch:
 
     @pytest.mark.asyncio
     async def test_search_unexpected_exception(self, caplog: pytest.LogCaptureFixture) -> None:
-        """search() returns [] on unexpected RuntimeError; WARNING logged."""
-        from archon.ai.search_client import SearchClient
+        """search() returns empty SearchQueryResult on unexpected RuntimeError; WARNING logged."""
+        from archon.ai.search_client import SearchClient, SearchQueryResult
 
         client = SearchClient(base_url="http://localhost:8282")
 
@@ -1774,7 +1779,8 @@ class TestSearchClientSearch:
             with caplog.at_level(logging.WARNING, logger="archon"):
                 result = await client.search("col1", "query")
 
-        assert result == []
+        assert isinstance(result, SearchQueryResult)
+        assert result.results == []
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert warning_records, "Expected a WARNING log for unexpected exception"
 

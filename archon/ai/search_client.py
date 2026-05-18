@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, NamedTuple
 
 import httpx
 
@@ -26,7 +26,12 @@ except ImportError:
 
 logger = logging.getLogger("archon")
 
-_HEX_RE = re.compile(r"^[0-9a-f]+$")  # mirrors key_manager.py in archon-search package
+_HEX_RE = re.compile(r"^[0-9a-f]+$")
+
+
+class SearchQueryResult(NamedTuple):
+    results: list[dict[str, Any]]
+    acl_filtered: bool
 
 
 class SearchApiKeyAuth(httpx.Auth):
@@ -165,29 +170,42 @@ class SearchClient:
         collection: str,
         query: str,
         top_k: int = 5,
-    ) -> list[dict[str, Any]]:
-        """POST /search; returns list of result dicts or [] on any failure."""
+    ) -> SearchQueryResult:
+        """POST /search; returns SearchQueryResult or empty result on any failure."""
+        _empty = SearchQueryResult(results=[], acl_filtered=False)
         try:
             resp = await self._http.post(
                 "/search",
                 json={"collection": collection, "query": query, "top_k": top_k},
             )
             resp.raise_for_status()
-            return list(resp.json())
+            data = resp.json()
+            if isinstance(data, dict):
+                results = data.get("results", [])
+                if not isinstance(results, list):
+                    return SearchQueryResult(results=[], acl_filtered=False)
+                return SearchQueryResult(results=results, acl_filtered=data.get("acl_filtered", False))
+            elif isinstance(data, list):
+                logger.warning(
+                    "search: received bare JSON array from server (old server version?); acl_filtered defaults to False"
+                )
+                return SearchQueryResult(results=data, acl_filtered=False)
+            else:
+                return _empty
         except httpx.TimeoutException:
             logger.warning("Search request timed out for collection %s", collection)
-            return []
+            return _empty
         except httpx.ConnectError:
             logger.debug("Search connection error for collection %s", collection)
-            return []
+            return _empty
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code in (401, 403):
-                return []  # auth subclass already logged
+                return _empty  # auth subclass already logged
             logger.warning("Search HTTP %s for collection %s", exc.response.status_code, collection)
-            return []
+            return _empty
         except Exception:
             logger.warning("Search unexpected error for collection %s", collection)
-            return []
+            return _empty
 
     # ------------------------------------------------------------------
     # /health

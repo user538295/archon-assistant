@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from archon.ai.decomposer import TaskOutput
+from archon.ai.search_client import SearchQueryResult
 
 from archon_search._types import SearchResult
 
@@ -33,7 +34,7 @@ def _make_search_result(text: str, score: float, collection: str = "col") -> Sea
 
 
 def _make_search_dict(text: str, score: float, collection: str = "col") -> dict:
-    """Return a raw dict as returned by SearchClient.search()."""
+    """Return a raw dict as a single search result entry."""
     return {
         "doc_id": f"{collection}-doc",
         "chunk_id": f"{collection}-chunk",
@@ -41,6 +42,11 @@ def _make_search_dict(text: str, score: float, collection: str = "col") -> dict:
         "score": score,
         "source_path": f"/path/{collection}.md",
     }
+
+
+def _sqr(results: list[dict], *, acl_filtered: bool = False) -> SearchQueryResult:
+    """Wrap a list of result dicts into a SearchQueryResult for use in mocks."""
+    return SearchQueryResult(results=results, acl_filtered=acl_filtered)
 
 
 def _make_rag_config(
@@ -148,9 +154,9 @@ async def test_get_context_calls_route_then_fastmcp() -> None:
 
     client.route = AsyncMock(side_effect=_track_route)
 
-    async def _track_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _track_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         call_order.append(f"search:{collection}")
-        return [_make_search_dict("text", 0.9, collection)]
+        return _sqr([_make_search_dict("text", 0.9, collection)])
 
     # Phase A
     pre = await provider.get_pre_context("query")
@@ -185,9 +191,9 @@ async def test_get_context_preserves_pinned_names_from_route_state() -> None:
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -217,9 +223,9 @@ async def test_get_context_preserves_tier1_behavior_from_route_state() -> None:
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -250,9 +256,9 @@ async def test_get_context_discards_hallucinated_collections_from_route_state() 
     task_output = _make_task_output(selected_collections=["col1", "hallucinated"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     await provider.search_and_prepare(task_output, "query")
@@ -282,10 +288,10 @@ async def test_get_context_respects_max_parallel_and_top_k_return() -> None:
     task_output = _make_task_output(selected_collections=["c1", "c2", "c3", "c4", "c5"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
         assert top_k == 3  # top_k_return respected
-        return [_make_search_dict(f"text-{collection}", 0.8, collection)]
+        return _sqr([_make_search_dict(f"text-{collection}", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -400,10 +406,10 @@ async def test_tier1_skips_decomposer_searches_all_routable() -> None:
     await provider.get_pre_context("query")
 
     task_output = _make_task_output(selected_collections=None)
-    results_col1 = [_make_search_dict("chunk from col1", 0.9, "col1")]
-    results_col2 = [_make_search_dict("chunk from col2", 0.7, "col2")]
+    results_col1 = _sqr([_make_search_dict("chunk from col1", 0.9, "col1")])
+    results_col2 = _sqr([_make_search_dict("chunk from col2", 0.7, "col2")])
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         if collection == "col1":
             return results_col1
         return results_col2
@@ -436,9 +442,9 @@ async def test_tier1_cap_applies_to_routable_not_total() -> None:
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -467,9 +473,9 @@ async def test_search_and_prepare_caps_at_3_collections() -> None:
     task_output = _make_task_output(selected_collections=["col1", "col2", "col3", "col4"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     await provider.search_and_prepare(task_output, "query")
@@ -510,9 +516,9 @@ async def test_search_and_prepare_selected_empty_list_searches_pinned_only() -> 
     task_output = _make_task_output(selected_collections=[])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -563,9 +569,9 @@ async def test_search_and_prepare_remaps_none_to_empty_list_when_decomposer_was_
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -593,9 +599,9 @@ async def test_pinned_collections_bypass_confidence_gate() -> None:
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.9, collection)]
+        return _sqr([_make_search_dict("text", 0.9, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -623,9 +629,9 @@ async def test_pinned_only_search_when_router_selects_zero() -> None:
     task_output = _make_task_output(selected_collections=[])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -653,9 +659,9 @@ async def test_pinned_and_selected_merged() -> None:
     task_output = _make_task_output(selected_collections=["col1"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict(f"text from {collection}", 0.8, collection)]
+        return _sqr([_make_search_dict(f"text from {collection}", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -683,9 +689,9 @@ async def test_pinned_counts_toward_max_parallel() -> None:
     task_output = _make_task_output(selected_collections=["col1", "col2", "col3"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     await provider.search_and_prepare(task_output, "query")
@@ -712,8 +718,8 @@ async def test_actual_searched_names_includes_pinned() -> None:
 
     task_output = _make_task_output(selected_collections=["col1"])
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
-        return [_make_search_dict("text", 0.8, collection)]
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -743,9 +749,9 @@ async def test_pinned_exhausts_max_parallel_cap() -> None:
     task_output = _make_task_output(selected_collections=["col1", "col2"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     await provider.search_and_prepare(task_output, "query")
@@ -840,9 +846,9 @@ async def test_rag_parsing_filters_hallucinated_names() -> None:
     task_output = _make_task_output(selected_collections=["col1", "hallucinated"])
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     await provider.search_and_prepare(task_output, "query")
@@ -957,7 +963,7 @@ async def test_rag_skips_on_server_error() -> None:
 
     task_output = _make_task_output(selected_collections=["col1"])
 
-    async def _failing_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _failing_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         raise ConnectionError("server down")
 
     client.search = AsyncMock(side_effect=_failing_search)
@@ -984,10 +990,10 @@ async def test_rag_partial_search_failure_uses_remaining_results() -> None:
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
 
-    async def _mixed_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mixed_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         if collection == "col1":
             raise ConnectionError("col1 down")
-        return [_make_search_dict("from col2", 0.8, "col2")]
+        return _sqr([_make_search_dict("from col2", 0.8, "col2")])
 
     client.search = AsyncMock(side_effect=_mixed_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -1016,7 +1022,7 @@ async def test_search_and_prepare_all_collections_fail_returns_none() -> None:
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
 
-    async def _all_fail(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _all_fail(collection: str, query: str, top_k: int) -> SearchQueryResult:
         raise RuntimeError("all down")
 
     client.search = AsyncMock(side_effect=_all_fail)
@@ -1052,7 +1058,7 @@ async def test_rag_parallel_search_bounded() -> None:
     current_concurrent = 0
     lock = asyncio.Lock()
 
-    async def _bounded_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _bounded_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         nonlocal concurrent_peak, current_concurrent
         async with lock:
             current_concurrent += 1
@@ -1061,7 +1067,7 @@ async def test_rag_parallel_search_bounded() -> None:
         await asyncio.sleep(0.01)
         async with lock:
             current_concurrent -= 1
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_bounded_search)
     await provider.search_and_prepare(task_output, "query")
@@ -1145,10 +1151,10 @@ async def test_per_collection_search_timeout_excluded_from_results() -> None:
 
     task_output = _make_task_output(selected_collections=["fast", "slow"])
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         if collection == "slow":
             raise asyncio.TimeoutError()
-        return [_make_search_dict("fast result", 0.9, collection)]
+        return _sqr([_make_search_dict("fast result", 0.9, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -1238,9 +1244,9 @@ async def test_a10_30_decomposer_invoked_none_selected_searches_pinned_only() ->
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -1268,9 +1274,9 @@ async def test_a10_31_five_pinned_max_parallel_3_all_searched() -> None:
     task_output = _make_task_output(selected_collections=None)
     searched: list[str] = []
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         searched.append(collection)
-        return [_make_search_dict("text", 0.8, collection)]
+        return _sqr([_make_search_dict("text", 0.8, collection)])
 
     client.search = AsyncMock(side_effect=_mock_search)
     result = await provider.search_and_prepare(task_output, "query")
@@ -1368,7 +1374,7 @@ async def test_a10_39_all_tasks_raise_value_error_returns_none(caplog: Any) -> N
 
     task_output = _make_task_output(selected_collections=["col1", "col2"])
 
-    async def _raise_value_error(collection: str, query: str, top_k: int) -> list[SearchResult]:
+    async def _raise_value_error(collection: str, query: str, top_k: int) -> SearchQueryResult:
         raise ValueError(f"bad collection: {collection}")
 
     client.search = AsyncMock(side_effect=_raise_value_error)
@@ -1411,9 +1417,9 @@ async def test_bounded_search_uses_search_client() -> None:
         decomposer_invoked=True,
     )
     client = _make_mock_client(route_response=route_resp)
-    client.search = AsyncMock(return_value=[
+    client.search = AsyncMock(return_value=_sqr([
         {"doc_id": "d1", "chunk_id": "c1", "text": "hello", "score": 0.9, "source_path": "/f.md"}
-    ])
+    ]))
     cfg = _make_rag_config()
     provider = SearchContextProvider(cfg=cfg, search_client=client)
 
@@ -1481,10 +1487,10 @@ async def test_search_and_prepare_mixed_results() -> None:
     )
     client = _make_mock_client(route_response=route_resp)
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
         if collection == "empty_col":
-            return []
-        return [{"doc_id": "d1", "chunk_id": "c1", "text": "good result", "score": 0.9, "source_path": "/f.md"}]
+            return _sqr([])
+        return _sqr([{"doc_id": "d1", "chunk_id": "c1", "text": "good result", "score": 0.9, "source_path": "/f.md"}])
 
     client.search = AsyncMock(side_effect=_mock_search)
     cfg = _make_rag_config()

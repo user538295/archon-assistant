@@ -19,6 +19,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from archon.ai.search_client import SearchQueryResult
 from archon.ai.search_context_provider import (
     SearchContextProvider,
     SearchResult,
@@ -304,8 +305,8 @@ async def test_X7_7_empty_collection_result_skipped_no_crash():
         )
     )
 
-    async def _mock_search(collection: str, query: str, top_k: int) -> list[dict]:
-        return results_by_collection.get(collection, [])
+    async def _mock_search(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return SearchQueryResult(results=results_by_collection.get(collection, []), acl_filtered=False)
 
     mock_client.search = AsyncMock(side_effect=_mock_search)
 

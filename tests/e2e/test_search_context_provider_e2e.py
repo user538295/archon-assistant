@@ -15,6 +15,7 @@ import pytest
 import pytest_asyncio
 
 from archon.ai.decomposer import TaskOutput
+from archon.ai.search_client import SearchQueryResult
 from archon.ai.search_context_provider import SearchContextProvider
 
 try:
@@ -93,8 +94,8 @@ def _search_result_dict(
 
 def _make_search_mock(results_by_collection: dict[str, list[dict[str, Any]]]) -> AsyncMock:
     """Return an AsyncMock for client.search() that returns results by collection name."""
-    async def _search(collection: str, query: str, top_k: int) -> list[dict[str, Any]]:
-        return results_by_collection.get(collection, [])
+    async def _search(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return SearchQueryResult(results=results_by_collection.get(collection, []), acl_filtered=False)
     return AsyncMock(side_effect=_search)
 
 
@@ -536,10 +537,13 @@ async def test_E2_1_route_returns_none_get_pre_context_returns_none():
 @pytest.mark.e2e
 async def test_E2_2_one_collection_error_others_return_results(caplog):
     """E2.2: One collection raises → skipped, logged DEBUG; remaining results returned."""
-    async def _search_with_error(collection: str, query: str, top_k: int) -> list[dict]:
+    async def _search_with_error(collection: str, query: str, top_k: int) -> SearchQueryResult:
         if collection == "col_error":
             raise ConnectionError("server down")
-        return [_search_result_dict(doc_id="ok1", chunk_id="ok1", text="ok chunk", score=0.8, source_path="/ok.md")]
+        return SearchQueryResult(
+            results=[_search_result_dict(doc_id="ok1", chunk_id="ok1", text="ok chunk", score=0.8, source_path="/ok.md")],
+            acl_filtered=False,
+        )
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -577,7 +581,7 @@ async def test_E2_2_one_collection_error_others_return_results(caplog):
 @pytest.mark.e2e
 async def test_E2_3_all_collections_error_returns_none():
     """E2.3: When all collections raise, search_and_prepare() returns None."""
-    async def _all_fail(collection: str, query: str, top_k: int) -> list[dict]:
+    async def _all_fail(collection: str, query: str, top_k: int) -> SearchQueryResult:
         raise ConnectionError("server down")
 
     mock_client = _make_mock_client(
@@ -694,11 +698,14 @@ async def test_E2_5_all_collections_empty_returns_none():
 @pytest.mark.e2e
 async def test_E2_6_wrong_shape_json_returns_empty_no_crash():
     """E2.6: search() returns dicts with wrong keys → SearchResult(**r) raises KeyError → [], no crash."""
-    async def _search_bad_shape(collection: str, query: str, top_k: int) -> list[dict]:
-        return [
-            {"unexpected_key": "some value"},
-            {"also_wrong": 42, "no_doc_id": True},
-        ]
+    async def _search_bad_shape(collection: str, query: str, top_k: int) -> SearchQueryResult:
+        return SearchQueryResult(
+            results=[
+                {"unexpected_key": "some value"},
+                {"also_wrong": 42, "no_doc_id": True},
+            ],
+            acl_filtered=False,
+        )
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
@@ -869,12 +876,15 @@ async def test_C2_4_max_parallel_1_sequential_search():
     """
     call_order: list[str] = []
 
-    async def _search_ordered(collection: str, query: str, top_k: int) -> list[dict]:
+    async def _search_ordered(collection: str, query: str, top_k: int) -> SearchQueryResult:
         call_order.append(collection)
-        return [_search_result_dict(
-            doc_id=f"{collection}-d", chunk_id=f"{collection}-c",
-            text=f"text from {collection}", score=0.8, source_path=f"/{collection}.md"
-        )]
+        return SearchQueryResult(
+            results=[_search_result_dict(
+                doc_id=f"{collection}-d", chunk_id=f"{collection}-c",
+                text=f"text from {collection}", score=0.8, source_path=f"/{collection}.md"
+            )],
+            acl_filtered=False,
+        )
 
     mock_client = _make_mock_client(
         route_response=_make_route_response(
