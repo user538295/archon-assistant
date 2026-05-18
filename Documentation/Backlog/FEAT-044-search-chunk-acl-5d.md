@@ -294,7 +294,7 @@ After 5d, an operator can annotate any document with an ACL at ingest time (YAML
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/test_acl.py -v`
 
 #### Task 2.3 — ACL filter utilities: `is_acl_allowed()` and `apply_acl_filter()`
-- [ ] **File**: `packages/archon-search/archon_search/acl.py`
+- [x] **File**: `packages/archon-search/archon_search/acl.py`
 - **Depends on**: Task 2.2 (same file, sequential)
 - **Description**:
   - `is_acl_allowed(acl: list[str] | None, namespace: str) -> bool`:
