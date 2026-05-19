@@ -361,10 +361,15 @@ async def test_ingest_empty_collection_name_returns_422(patched_search_client):
 @pytest.mark.e2e
 async def test_route_504_timeout_returns_none(patched_search_client, caplog):
     """E1.12: Patch server-side asyncio.wait_for to raise TimeoutError → 504; client returns None, logs WARNING."""
+    async def _raise_timeout(coro, *args, **kwargs):
+        if hasattr(coro, "close"):
+            coro.close()
+        raise asyncio.TimeoutError()
+
     with caplog.at_level(logging.WARNING, logger="archon"):
         with patch(
             "archon_search.server.routes_route.asyncio.wait_for",
-            side_effect=asyncio.TimeoutError,
+            new=_raise_timeout,
         ):
             result = await patched_search_client.route("anything")
     assert result is None

@@ -370,7 +370,12 @@ def test_gateway_start_exits_with_1_on_config_error() -> None:
     from archon.config.loader import ConfigError
     from archon.gateway.gateway import Gateway
 
-    with patch("archon.gateway.gateway.asyncio.run", side_effect=ConfigError("TELEGRAM_BOT_TOKEN is invalid")):
+    def _close_and_raise(coro):
+        if hasattr(coro, "close"):
+            coro.close()
+        raise ConfigError("TELEGRAM_BOT_TOKEN is invalid")
+
+    with patch("archon.gateway.gateway.asyncio.run", side_effect=_close_and_raise):
         with pytest.raises(SystemExit) as exc_info:
             Gateway.start()
 
@@ -934,7 +939,12 @@ async def test_ensure_search_server_unreachable() -> None:
 async def test_ensure_search_server_timeout() -> None:
     """asyncio.TimeoutError → False, warning logged."""
     from archon.gateway.gateway import _ensure_search_server
-    with patch("asyncio.wait_for", AsyncMock(side_effect=asyncio.TimeoutError)):
+    async def _raise_timeout(coro, *args, **kwargs):
+        if hasattr(coro, "close"):
+            coro.close()
+        raise asyncio.TimeoutError()
+
+    with patch("asyncio.wait_for", _raise_timeout):
         result = await _ensure_search_server("127.0.0.1", 8080)
     assert result is False
 
