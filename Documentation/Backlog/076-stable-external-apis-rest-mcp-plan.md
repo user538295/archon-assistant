@@ -672,7 +672,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_mcp_telemetry.py -v`
 
 #### Task 4.3 — Add `APIKeyMiddleware` to FastMCP HTTP transport
-- [ ] **File**: `packages/archon-search/archon_search/server/mcp.py`
+- [x] **File**: `packages/archon-search/archon_search/server/mcp.py`
 - **Depends on**: Task 1.1 (exempt paths pattern)
 - **Description**:
   - In `create_app()`, add auth middleware to the FastMCP app after construction:
