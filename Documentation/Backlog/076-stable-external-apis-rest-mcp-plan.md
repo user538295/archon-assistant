@@ -541,7 +541,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_app_factory.py -v`
 
 #### Task 3.4 — Refactor `routes_search.py` to delegate to `pipeline.search()`
-- [ ] **File**: `packages/archon-search/archon_search/server/routes_search.py`
+- [x] **File**: `packages/archon-search/archon_search/server/routes_search.py`
 - **Depends on**: Task 3.1, Task 3.3
 - **Description**:
   - Remove imports: `from archon_search.reranker import ModelReranker, Reranker`, `from archon_search.store import SearchStore`
