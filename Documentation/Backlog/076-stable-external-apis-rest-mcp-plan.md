@@ -807,7 +807,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
 ### Phase 6 — Verification & Documentation
 
 #### Task 6.1 — Final verification & documentation update
-- [ ] **File**: N/A (agent task)
+- [x] **File**: N/A (agent task)
 - **Depends on**: all prior tasks
 - **Description**:
   - Spawn an agent to discover all documentation in the project (CLAUDE.md, README.md, ADRs, Architecture docs, UserManual, archon-search README, `Documentation/Backlog/stable-external-apis-rest-mcp-brief.md`) and update every file whose content is affected by this feature. Specifically:
