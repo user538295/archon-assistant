@@ -245,6 +245,7 @@ dependencies = [
     { name = "mistune" },
     { name = "pillow" },
     { name = "python-dotenv" },
+    { name = "tiktoken" },
     { name = "tomlkit" },
 ]
 
@@ -300,6 +301,7 @@ requires-dist = [
     { name = "openai-whisper", marker = "extra == 'voice'" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "tiktoken", marker = "extra == 'tokens'", specifier = ">=0.7" },
     { name = "tomlkit", specifier = ">=0.12" },
     { name = "trafilatura", marker = "extra == 'search'", specifier = ">=1.8.0" },
