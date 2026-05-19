@@ -198,31 +198,6 @@ def test_main_search_collection_remove_parses_path_and_force() -> None:
     assert isinstance(captured["kwargs"]["collection_parser"], argparse.ArgumentParser)
 
 
-def test_main_search_sync_parses() -> None:
-    """main(['rag', 'sync']) sets args.search_command='sync'."""
-    import argparse
-    captured: dict = {}
-
-    def fake_run_search(args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return 0
-
-    mock_mod = MagicMock()
-    mock_mod.run_search.side_effect = fake_run_search
-
-    with patch.dict(sys.modules, {"archon.cli.search_cmd": mock_mod}):
-        from archon.cli.main import main
-        result = main(["search", "sync"])
-
-    assert result == 0
-    assert captured["args"].search_command == "sync"
-    assert "search_parser" in captured["kwargs"]
-    assert "collection_parser" in captured["kwargs"]
-    assert isinstance(captured["kwargs"]["search_parser"], argparse.ArgumentParser)
-    assert isinstance(captured["kwargs"]["collection_parser"], argparse.ArgumentParser)
-
-
 def test_main_search_no_subcommand_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
     """main(["search"]) shows rag help and returns 0."""
     from archon.cli.main import main

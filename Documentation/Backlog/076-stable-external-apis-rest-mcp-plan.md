@@ -702,7 +702,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
 > **Releasable**: after this phase, all acceptance criteria are met — `search_sync` removed, BREAKING.md in place, snapshot test in CI.
 
 #### Task 5.1 — Remove `search_sync` dead stub from `archon_toolkit_search.py`
-- [ ] **File**: `archon/ai/archon_toolkit_search.py`
+- [x] **File**: `archon/ai/archon_toolkit_search.py`
 - **Depends on**: nothing
 - **Description**:
   - Remove the `search_sync` tool registration block entirely — the function definition and its `@toolkit.tool()` or equivalent registration call

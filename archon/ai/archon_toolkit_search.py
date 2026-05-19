@@ -153,32 +153,6 @@ async def _handle_rag_ingest(
     return json.dumps({"job_id": job.job_id, "status": str(job.status), "collection": collection})
 
 # ---------------------------------------------------------------------------
-# search_sync
-# ---------------------------------------------------------------------------
-
-_SEARCH_SYNC_SCHEMA: dict[str, Any] = {
-    "name": "search_sync",
-    "description": (
-        "Not currently supported via HTTP. "
-        "Use the archon-search CLI directly for sync operations."
-    ),
-    "inputSchema": {
-        "type": "object",
-        "properties": {},
-    },
-}
-
-
-async def _handle_rag_sync(
-    toolkit: "ArchonToolkit",
-    arguments: dict[str, Any],
-    *,
-    user_id: int | None = None,
-) -> str:
-    """Sync is not supported via HTTP in this version."""
-    return "search_sync is not supported via the HTTP API in this version. Use the search service CLI directly."
-
-# ---------------------------------------------------------------------------
 # search_collection_list
 # ---------------------------------------------------------------------------
 
@@ -407,11 +381,6 @@ def _register_search_tools(toolkit: "ArchonToolkit") -> None:
         "search_ingest",
         _SEARCH_INGEST_SCHEMA,
         functools.partial(_handle_rag_ingest, toolkit),
-    )
-    toolkit.register_tool(
-        "search_sync",
-        _SEARCH_SYNC_SCHEMA,
-        functools.partial(_handle_rag_sync, toolkit),
     )
     toolkit.register_tool(
         "search_collection_list",

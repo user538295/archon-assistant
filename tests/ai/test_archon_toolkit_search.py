@@ -16,7 +16,6 @@ from archon.ai.archon_toolkit_search import (
     _handle_rag_start,
     _handle_rag_stop,
     _handle_rag_ingest,
-    _handle_rag_sync,
     _handle_rag_collection_list,
     _handle_rag_collection_add,
     _handle_rag_collection_remove,
@@ -217,37 +216,6 @@ class TestSearchIngestReturnsJobInfo:
         data = json.loads(result)
         assert "status" in data
         assert "collection" in data
-
-
-# ---------------------------------------------------------------------------
-# 6. test_search_sync_invokes_sync_wrapper
-# ---------------------------------------------------------------------------
-
-
-class TestSearchSyncInvokesSyncWrapper:
-    async def test_search_sync_invokes_sync_wrapper(self) -> None:
-        """search_sync returns a 'not supported' message (does not import SearchCollectionSync)."""
-        toolkit = _make_toolkit()
-        result = await _handle_rag_sync(toolkit, {})
-        assert "not supported" in result.lower() or "sync" in result.lower()
-
-    async def test_search_sync_does_not_import_search_collection_sync(self) -> None:
-        """The module does not reference SearchCollectionSync at all."""
-        import inspect
-        src = inspect.getsource(search_module)
-        assert "SearchCollectionSync" not in src
-
-    async def test_search_sync_does_not_import_archon_search_internals(self) -> None:
-        """The module has no 'from archon.search.' import statements (except via search_client)."""
-        import inspect
-        src = inspect.getsource(search_module)
-        # Only check actual import statement lines (starting with 'from' or 'import')
-        forbidden_import_lines = [
-            line.strip() for line in src.splitlines()
-            if (line.strip().startswith("from archon.search") or line.strip().startswith("import archon.search"))
-        ]
-        assert len(forbidden_import_lines) == 0, \
-            f"Forbidden archon.search imports found: {forbidden_import_lines}"
 
 
 # ---------------------------------------------------------------------------
@@ -461,8 +429,8 @@ class TestNoInternalSearchImports:
 
 
 class TestRegisterSearchTools:
-    def test_all_11_tools_registered(self) -> None:
-        """_register_search_tools registers exactly the 11 expected tool names."""
+    def test_all_10_tools_registered(self) -> None:
+        """_register_search_tools registers exactly the 10 expected tool names (search_sync removed)."""
         from archon.ai.archon_toolkit_search import _register_search_tools
         from unittest.mock import MagicMock
 
@@ -483,7 +451,6 @@ class TestRegisterSearchTools:
             "search_start",
             "search_stop",
             "search_ingest",
-            "search_sync",
             "search_collection_list",
             "search_collection_add",
             "search_collection_remove",
@@ -590,6 +557,54 @@ class TestSearchCollectionInfoJsonRoundtrip:
 
         parsed = json.loads(result)
         assert parsed == info
+
+
+# ---------------------------------------------------------------------------
+# FEAT-045 Task 5.1: search_sync removed
+# ---------------------------------------------------------------------------
+
+
+class TestSearchSyncRemoved:
+    def test_search_sync_not_in_registered_tools(self) -> None:
+        """ArchonToolkit tool list does not include 'search_sync' after _register_search_tools()."""
+        from archon.ai.archon_toolkit_search import _register_search_tools
+
+        toolkit = MagicMock(spec=ArchonToolkit)
+        registered_names: list[str] = []
+
+        def capture(name: str, schema: dict, handler: object) -> None:
+            registered_names.append(name)
+
+        toolkit.register_tool = capture
+        _register_search_tools(toolkit)
+        assert "search_sync" not in registered_names
+
+    def test_remaining_search_tools_still_registered(self) -> None:
+        """search_status, search_ingest, search_collection_list, etc. are still registered."""
+        from archon.ai.archon_toolkit_search import _register_search_tools
+
+        toolkit = MagicMock(spec=ArchonToolkit)
+        registered_names: list[str] = []
+
+        def capture(name: str, schema: dict, handler: object) -> None:
+            registered_names.append(name)
+
+        toolkit.register_tool = capture
+        _register_search_tools(toolkit)
+
+        expected_remaining = {
+            "search_status",
+            "search_start",
+            "search_stop",
+            "search_ingest",
+            "search_collection_list",
+            "search_collection_add",
+            "search_collection_remove",
+            "search_collection_info",
+            "search_collection_reindex",
+            "telemetry_stats",
+        }
+        assert expected_remaining.issubset(set(registered_names))
 
 
 # ---------------------------------------------------------------------------

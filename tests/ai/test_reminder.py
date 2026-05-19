@@ -567,7 +567,6 @@ def test_reminder_lists_all_tools() -> None:
         "search_start",
         "search_stop",
         "search_ingest",
-        "search_sync",
         "search_collection_list",
         "search_collection_add",
         "search_collection_remove",

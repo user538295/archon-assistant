@@ -74,7 +74,7 @@ class TestToolRegistration:
     def test_all_search_tools_registered(self) -> None:
         toolkit = ArchonToolkit()
         expected = {
-            "search_status", "search_start", "search_stop", "search_sync",
+            "search_status", "search_start", "search_stop",
             "search_ingest", "search_collection_list", "search_collection_add",
             "search_collection_remove", "search_collection_info",
             "search_collection_reindex",
@@ -449,30 +449,6 @@ class TestH611SearchStop:
         result = await toolkit.call_tool("search_stop", {})
 
         assert "archon search stop" in result
-
-
-# ---------------------------------------------------------------------------
-# H6.12: search_sync — not supported via HTTP API
-# ---------------------------------------------------------------------------
-
-
-class TestH612SearchSync:
-    """H6.12: search_sync returns 'not supported via HTTP API' message.
-
-    The handler returns a fixed string explaining that sync is not supported
-    via the HTTP API and directing the user to use the CLI directly.
-    """
-
-    async def test_search_sync_returns_not_supported_message(self) -> None:
-        toolkit = _make_toolkit()
-
-        result = await toolkit.call_tool("search_sync", {})
-
-        # Production handler returns:
-        # "search_sync is not supported via the HTTP API in this version.
-        #  Use the search service CLI directly."
-        assert "not supported" in result.lower()
-        assert "http api" in result.lower()
 
 
 # ---------------------------------------------------------------------------
