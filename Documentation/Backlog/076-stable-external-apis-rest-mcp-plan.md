@@ -755,7 +755,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
 - **Checkpoint**: manually verify `BREAKING.md` exists at `packages/archon-search/BREAKING.md` and contains the policy section and MCP search entry
 
 #### Task 5.3 — OpenAPI spec snapshot test
-- [ ] **File**: `packages/archon-search/tests/server/test_openapi_snapshot.py` (new)
+- [x] **File**: `packages/archon-search/tests/server/test_openapi_snapshot.py` (new)
 - **Depends on**: Task 1.2, all Phase 2 tasks
 - **Description**:
   - Create a snapshot test that: (a) generates the OpenAPI spec from a test app instance, (b) serializes it to JSON, (c) compares against a committed baseline file `tests/server/openapi_snapshot.json`
