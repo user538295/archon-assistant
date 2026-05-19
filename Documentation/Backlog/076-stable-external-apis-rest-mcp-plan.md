@@ -649,7 +649,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `cd packages/archon-search && uv run pytest tests/server/test_mcp_error_responses.py -v`
 
 #### Task 4.2 — Align MCP `search` tool response to REST `SearchResponse` shape
-- [ ] **File**: `packages/archon-search/archon_search/server/mcp.py`
+- [x] **File**: `packages/archon-search/archon_search/server/mcp.py`
 - **Depends on**: Task 3.1 (SearchPipelineResult), Task 4.1
 - **Description**:
   - Change `search` tool return type from `list[dict[str, Any]]` to `dict[str, Any]` (matches `SearchResponse` JSON shape)
