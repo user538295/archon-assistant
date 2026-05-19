@@ -715,7 +715,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
   - Checkpoint: `uv run pytest tests/ai/test_archon_toolkit_search.py -v`
 
 #### Task 5.2 — Add `BREAKING.md` with CalVer compatibility policy
-- [ ] **File**: `BREAKING.md` (project root of archon-search package: `packages/archon-search/BREAKING.md`)
+- [x] **File**: `BREAKING.md` (project root of archon-search package: `packages/archon-search/BREAKING.md`)
 - **Depends on**: nothing
 - **Description**:
   - Create `BREAKING.md` with the following content structure:
