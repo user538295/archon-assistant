@@ -626,7 +626,7 @@ _ERROR_401_404 = {401: {"model": ErrorDetail}, 404: {"model": ErrorDetail}}
 > **Releasable**: after Task 4.3, the MCP server is auth-enforced for HTTP transport, errors are structured, and search response shape matches REST. Full MCP parity for the primary surfaces delivered.
 
 #### Task 4.1 — Standardize MCP error responses to structured shape
-- [ ] **File**: `packages/archon-search/archon_search/server/mcp.py`
+- [x] **File**: `packages/archon-search/archon_search/server/mcp.py`
 - **Depends on**: nothing
 - **Description**:
   - Add a `TypedDict` for structured error responses:
