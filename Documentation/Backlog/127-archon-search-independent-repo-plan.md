@@ -69,11 +69,12 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 ### Phase 0 — Pre-work
 
 #### Task 0.1 — Verify PyPI name availability
-- [ ] **File**: N/A (manual check)
+- [x] **File**: N/A (manual check)
 - **Depends on**: nothing
 - **Description**:
   - Open `https://pypi.org/project/archon-search` — if it returns a 404, the name is available and Phase 1 can proceed. If it returns a live project not owned by you, a rename is required before any other work proceeds.
   - Record the result (available / taken) in this task.
+  - **Result**: Available (HTTP 404 confirmed on 2026-05-20).
 - **Releasable**: after this task, the go/no-go decision for the extraction is confirmed.
 - **Tests (TDD)**: N/A — manual verification.
 - **Checkpoint**: manual — visit the URL and confirm.
