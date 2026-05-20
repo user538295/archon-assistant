@@ -298,7 +298,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 > **Releasable**: after each task is confirmed. Task 2.6 (first successful PyPI release) marks Phase 2 complete.
 
 #### Task 2.1 — Extract git history with `git filter-repo`
-- [ ] **File**: N/A (git operation)
+- [x] **File**: N/A (git operation)
 - **Depends on**: Task 1.12
 - **Description**:
   - **Pre-check 1 — Verify which legacy paths have history (run this first):**
@@ -343,7 +343,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 - **Checkpoint**: `ls /tmp/archon-search-extract && git -C /tmp/archon-search-extract log --oneline | head -5`
 
 #### Task 2.1b — Adapt eval/contract tests for standalone repo structure
-- [ ] **File**: `tests/eval/test_ci_contract.py`, `tests/eval/test_phase0_contract.py`, `tests/telemetry/test_docs_contract.py` (in extracted clone)
+- [x] **File**: `tests/eval/test_ci_contract.py`, `tests/eval/test_phase0_contract.py`, `tests/telemetry/test_docs_contract.py` (in extracted clone)
 - **Depends on**: Task 2.1
 - **Description**:
   - In the extracted clone at `/tmp/archon-search-extract`, handle the eval/contract tests that are coupled to the monorepo layout:
