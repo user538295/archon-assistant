@@ -131,7 +131,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_no_archon_imports.py -v --no-cov`
 
 #### Task 1.5 — Rename `~/.archon/` defaults in `config.py`
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: nothing
 - **Description**:
   - In `TelemetryConfig`: change `log_dir` default from `"~/.archon/search-logs"` to `"~/.archon-search/search-logs"`.
