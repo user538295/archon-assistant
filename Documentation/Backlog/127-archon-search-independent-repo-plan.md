@@ -360,7 +360,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `cd /tmp/archon-search-extract && uv run pytest tests/telemetry/ -v --no-cov` — the two eval contract test files have been deleted, so only telemetry tests run here. All must pass.
 
 #### Task 2.2 — Create GitHub repo and push extracted history
-- [ ] **File**: N/A (GitHub operation)
+- [x] **File**: N/A (GitHub operation)
 - **Depends on**: Task 2.1b
 - **Description**:
   - Create a new empty GitHub repo named `archon-search` under the same owner as Archon (do not initialize with README).
@@ -426,7 +426,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 - **Checkpoint**: workflow YAML is syntactically valid (`yamllint .github/workflows/archon-search-release.yml`).
 
 #### Task 2.6 — Trigger first release and verify PyPI publication
-- [ ] **File**: N/A (trigger + verify)
+- [x] **File**: N/A (trigger + verify)
 - **Depends on**: Task 2.5
 - **Description**:
   - **Required sub-task (before first push)**: Ensure `archon_search/__main__.py` exists with `from archon_search.cli.main import main; main()` so `python -m archon_search` works. Ensure `cli/main.py`'s Click group includes:
