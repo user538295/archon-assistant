@@ -148,7 +148,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_config.py packages/archon-search/tests/config/test_telemetry_config.py -v --no-cov`
 
 #### Task 1.6 — Add `ARCHON_SEARCH_CONFIG` env var override in `config.py`
-- [ ] **File**: `packages/archon-search/archon_search/config.py`
+- [x] **File**: `packages/archon-search/archon_search/config.py`
 - **Depends on**: Task 1.5
 - **Description**:
   - At the top of `get_default_config_path()`, check `os.environ.get("ARCHON_SEARCH_CONFIG")` — if set and non-empty, return `Path(os.path.expanduser(value))`.
