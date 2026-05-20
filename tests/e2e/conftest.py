@@ -2,14 +2,27 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import httpx
+import pytest
 import pytest_asyncio
 from archon_search.server.app import create_app
 from archon_search.config import SearchConfig
 from archon_search.jobs.store import JobStore
 
 from archon.ai.search_client import SearchClient
+
+# Stable test API key. Both the in-process server (key_manager._load_from_env)
+# and the parent's SearchClient (SearchApiKeyAuth) honor ARCHON_SEARCH_API_KEY
+# before consulting any file, so setting this env var bridges the
+# ~/.archon/ vs ~/.archon-search/ key-file path divergence in tests.
+_TEST_API_KEY = "a" * 64
+
+
+@pytest.fixture(autouse=True)
+def _shared_test_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ARCHON_SEARCH_API_KEY", _TEST_API_KEY)
 
 
 @pytest_asyncio.fixture(scope="function")

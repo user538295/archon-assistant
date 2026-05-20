@@ -282,7 +282,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest packages/archon-search/tests/ -q --no-cov`
 
 #### Task 1.12 — Full suite verification (both test trees)
-- [ ] **File**: N/A (verification task)
+- [x] **File**: N/A (verification task)
 - **Depends on**: Tasks 1.1–1.11
 - **Description**:
   - Run the complete monorepo test suite: `uv run pytest -q --no-cov` — all tests in both `tests/` and `packages/archon-search/tests/` must pass.

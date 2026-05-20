@@ -862,13 +862,15 @@ class TestRoutePayloadAndASGI:
         assert posted_json["query"] == "my query"
 
     @pytest.mark.asyncio
-    async def test_route_asgi_all_fields_populated(self, tmp_path) -> None:
+    async def test_route_asgi_all_fields_populated(self, tmp_path, monkeypatch) -> None:
         """A10.21b: real in-process FastAPI — RouteResponse fields correctly populated."""
         from archon_search.server.app import create_app
         from archon_search.config import SearchConfig
         from archon_search.jobs.store import JobStore
         from archon.ai.search_client import SearchClient
 
+        # Server and client share this key (both honor ARCHON_SEARCH_API_KEY env first).
+        monkeypatch.setenv("ARCHON_SEARCH_API_KEY", "a" * 64)
         config = SearchConfig(db_path=str(tmp_path / "search_db"))
         job_store = JobStore(tmp_path / "jobs.json")
         app = create_app(config, job_store, config_path=tmp_path / "config.toml")
