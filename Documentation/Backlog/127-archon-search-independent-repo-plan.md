@@ -208,7 +208,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest tests/cli/test_search_cmd.py -v --no-cov`
 
 #### Task 1.9 — Update documentation files
-- [ ] **File**: `packages/archon-search/archon-search.toml.example`, `packages/archon-search/README.md`
+- [x] **File**: `packages/archon-search/archon-search.toml.example`, `packages/archon-search/README.md`
 - **Depends on**: Tasks 1.5, 1.7
 - **Description**:
   - **`archon-search.toml.example`**: update line 2 instructional comment from `# Copy to ~/.archon/archon-search.toml` to `# Copy to ~/.archon-search/archon-search.toml`. Update all default value lines (`db_path`, `log_file`, `log_dir`, config path mentions) from `~/.archon/` to `~/.archon-search/`. Add a comment block noting the `ARCHON_SEARCH_CONFIG` env var.
