@@ -109,7 +109,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest packages/archon-search/tests/ -q --no-cov`
 
 #### Task 1.3 — Delete `_search_stubs_shim.py`
-- [ ] **File**: `packages/archon-search/tests/_search_stubs_shim.py` (delete)
+- [x] **File**: `packages/archon-search/tests/_search_stubs_shim.py` (delete)
 - **Depends on**: Task 1.2
 - **Description**:
   - Delete `packages/archon-search/tests/_search_stubs_shim.py`.
