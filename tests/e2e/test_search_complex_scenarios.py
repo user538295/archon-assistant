@@ -506,6 +506,7 @@ async def test_X7_13_none_config_path_skips_toml_write(tmp_path):
             base_url="http://test",
             transport=transport,
             follow_redirects=True,
+            headers={"Authorization": f"Bearer {'a' * 64}"},
         ) as client:
             coll_path = str(tmp_path / "no_cfg_docs")
 

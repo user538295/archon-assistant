@@ -137,16 +137,25 @@ async def test_get_job_returns_job_state(patched_search_client, tmp_path):
 async def test_cancel_job_in_pending_state_returns_202(patched_search_client, tmp_path):
     """H1.9: cancel_job on a PENDING job returns 202 and job transitions to CANCELLING."""
     coll_path = str(tmp_path / "cancel_docs")
-    add_result = await patched_search_client.add_collection(coll_path)
-    assert add_result is not None
-    job_id = add_result["job_id"]
 
-    status_code = await patched_search_client.cancel_job(job_id)
-    assert status_code == 202
+    # Suspend ingestion so the job stays active long enough to be cancelled.
+    async def _never_complete(*_args, **_kwargs):
+        await asyncio.Event().wait()
 
-    job = await patched_search_client.get_job(job_id)
-    assert job is not None
-    assert job.status == JobStatus.CANCELLING
+    with patch(
+        "archon_search.server.routes_collections._default_ingest_task",
+        new=_never_complete,
+    ):
+        add_result = await patched_search_client.add_collection(coll_path)
+        assert add_result is not None
+        job_id = add_result["job_id"]
+
+        status_code = await patched_search_client.cancel_job(job_id)
+        assert status_code == 202
+
+        job = await patched_search_client.get_job(job_id)
+        assert job is not None
+        assert job.status == JobStatus.CANCELLING
 
 
 @pytest.mark.asyncio
@@ -159,30 +168,38 @@ async def test_cancel_terminal_job_is_idempotent(patched_search_client, tmp_path
     → 202 (already CANCELLING, idempotent response).
     """
     coll_path = str(tmp_path / "terminal_docs")
-    add_result = await patched_search_client.add_collection(coll_path)
-    assert add_result is not None
-    job_id = add_result["job_id"]
 
-    # First cancel: PENDING job transitions to CANCELLING → 202
-    first_cancel = await patched_search_client.cancel_job(job_id)
-    assert first_cancel == 202
+    async def _never_complete(*_args, **_kwargs):
+        await asyncio.Event().wait()
 
-    job = await patched_search_client.get_job(job_id)
-    assert job is not None
-    assert job.status == JobStatus.CANCELLING
+    with patch(
+        "archon_search.server.routes_collections._default_ingest_task",
+        new=_never_complete,
+    ):
+        add_result = await patched_search_client.add_collection(coll_path)
+        assert add_result is not None
+        job_id = add_result["job_id"]
 
-    # Second cancel: CANCELLING job → idempotent 202
-    second_cancel = await patched_search_client.cancel_job(job_id)
+        # First cancel: PENDING job transitions to CANCELLING → 202
+        first_cancel = await patched_search_client.cancel_job(job_id)
+        assert first_cancel == 202
+
+        job = await patched_search_client.get_job(job_id)
+        assert job is not None
+        assert job.status == JobStatus.CANCELLING
+
+        # Second cancel: CANCELLING job → idempotent 202
+        second_cancel = await patched_search_client.cancel_job(job_id)
     assert second_cancel == 202
 
 
 @pytest.mark.asyncio
 @pytest.mark.e2e
 async def test_indexing_state_returns_empty_on_fresh_server(patched_search_client):
-    """H1.11: GET /indexing-state returns {} on a fresh server (no active indexing)."""
+    """H1.11: GET /indexing-state returns an empty IndexingStateResponse on a fresh server."""
     result = await patched_search_client.indexing_state()
     assert result is not None
-    assert result == {}
+    assert result == {"collections": {}, "last_updated": None, "trigger": None}
 
 
 @pytest.mark.asyncio
