@@ -189,7 +189,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest packages/archon-search/tests/test_job_store.py packages/archon-search/tests/test_key_manager.py packages/archon-search/tests/test_service_macos.py packages/archon-search/tests/test_service_linux.py -v --no-cov`
 
 #### Task 1.8 — Inject `ARCHON_SEARCH_CONFIG` from parent `search_cmd.py`
-- [ ] **File**: `archon/cli/search_cmd.py`
+- [x] **File**: `archon/cli/search_cmd.py`
 - **Depends on**: Task 1.6
 - **Description**:
   - In `_run_archon_search()`, replace `subprocess.run(["archon-search", *args])` with `subprocess.run(["archon-search", *args], env={**os.environ, "ARCHON_SEARCH_CONFIG": str(Path.home() / ".archon" / "archon-search.toml")})`.

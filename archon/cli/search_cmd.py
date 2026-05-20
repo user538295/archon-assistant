@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import logging
 import math
+import os
 import re
 import subprocess
 from datetime import UTC, datetime
@@ -16,6 +17,25 @@ from archon.config.loader import load_config
 logger = logging.getLogger("archon")
 
 _CONFIG_PATH = Path.home() / ".archon" / "config.toml"
+_ARCHON_SEARCH_CONFIG_PATH = Path.home() / ".archon" / "archon-search.toml"
+_KEY_FILE_PATH = Path.home() / ".archon" / ".search.env"
+
+
+def _read_api_key(key_file: Path) -> str | None:
+    """Read ARCHON_SEARCH_API_KEY value from a key file. Returns None on any error.
+
+    Must never log the value.
+    """
+    try:
+        text = key_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("ARCHON_SEARCH_API_KEY="):
+            value = line.split("=", 1)[1].strip()
+            return value or None
+    return None
 
 
 def _path_to_collection_name(path: str) -> str:
@@ -31,9 +51,22 @@ def _base_url(cfg: object) -> str:
 
 
 def _run_archon_search(*args: str) -> int:
-    """Delegate to the standalone archon-search CLI. Returns exit code."""
+    """Delegate to the standalone archon-search CLI. Returns exit code.
+
+    Injects backward-compat env vars so the spawned archon-search keeps using
+    Archon's ~/.archon/ paths (config + key file) rather than its own ~/.archon-search/.
+    """
+    env = {
+        **os.environ,
+        "ARCHON_SEARCH_CONFIG": str(_ARCHON_SEARCH_CONFIG_PATH),
+        "ARCHON_SEARCH_KEY_FILE": str(_KEY_FILE_PATH),
+    }
+    api_key = _read_api_key(_KEY_FILE_PATH)
+    if api_key is not None:
+        env["ARCHON_SEARCH_API_KEY"] = api_key
+
     try:
-        result = subprocess.run(["archon-search", *args])
+        result = subprocess.run(["archon-search", *args], env=env)
         return result.returncode
     except FileNotFoundError:
         print("Error: 'archon-search' not found in PATH. Install it first: uv tool install archon-search")

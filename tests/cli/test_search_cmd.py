@@ -3433,3 +3433,126 @@ class TestStartStopErrorPaths:
 # S9.55: _check_search_health not running → test_doctor_search.py::TestH83ServerUnreachable
 # S9.56: _check_search_health health returns None → test_doctor_search.py::TestH83ServerUnreachable::test_check_search_health_health_returns_none_prints_not_running
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Task 1.8 — _run_archon_search injects backward-compat env vars
+# ---------------------------------------------------------------------------
+
+
+def test_run_injects_archon_search_config() -> None:
+    """_run_archon_search must inject ARCHON_SEARCH_CONFIG=~/.archon/archon-search.toml."""
+    from archon.cli.search_cmd import _run_archon_search
+
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        _run_archon_search("status")
+
+    env = mock_run.call_args.kwargs["env"]
+    assert env["ARCHON_SEARCH_CONFIG"] == str(Path.home() / ".archon" / "archon-search.toml")
+
+
+def test_run_injects_key_file_path() -> None:
+    """_run_archon_search must inject ARCHON_SEARCH_KEY_FILE=~/.archon/.search.env."""
+    from archon.cli.search_cmd import _run_archon_search
+
+    with patch("archon.cli.search_cmd.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        _run_archon_search("status")
+
+    env = mock_run.call_args.kwargs["env"]
+    assert env["ARCHON_SEARCH_KEY_FILE"] == str(Path.home() / ".archon" / ".search.env")
+
+
+def test_run_injects_api_key_when_key_file_exists(tmp_path: Path) -> None:
+    """When ~/.archon/.search.env contains ARCHON_SEARCH_API_KEY=<value>, inject it into env."""
+    from archon.cli import search_cmd
+
+    key_file = tmp_path / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=testkey\n")
+
+    with (
+        patch.object(search_cmd, "_KEY_FILE_PATH", key_file),
+        patch("archon.cli.search_cmd.subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        search_cmd._run_archon_search("status")
+
+    env = mock_run.call_args.kwargs["env"]
+    assert env["ARCHON_SEARCH_API_KEY"] == "testkey"
+
+
+def test_run_no_api_key_when_key_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When ~/.archon/.search.env does not exist, ARCHON_SEARCH_API_KEY is not injected from the file."""
+    from archon.cli import search_cmd
+
+    missing = tmp_path / "nope.env"
+    monkeypatch.delenv("ARCHON_SEARCH_API_KEY", raising=False)
+
+    with (
+        patch.object(search_cmd, "_KEY_FILE_PATH", missing),
+        patch("archon.cli.search_cmd.subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        search_cmd._run_archon_search("status")
+
+    env = mock_run.call_args.kwargs["env"]
+    assert "ARCHON_SEARCH_API_KEY" not in env
+
+
+def test_run_does_not_log_api_key(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The API key value must not appear in any log record at any level."""
+    import logging as _logging
+
+    from archon.cli import search_cmd
+
+    key_file = tmp_path / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=supersecretkey\n")
+
+    caplog.set_level(_logging.DEBUG, logger="archon")
+
+    with (
+        patch.object(search_cmd, "_KEY_FILE_PATH", key_file),
+        patch("archon.cli.search_cmd.subprocess.run") as mock_run,
+    ):
+        mock_run.return_value = MagicMock(returncode=0)
+        search_cmd._run_archon_search("status")
+
+    for record in caplog.records:
+        assert "supersecretkey" not in record.getMessage()
+
+
+def test_read_api_key_missing_file_returns_none(tmp_path: Path) -> None:
+    """_read_api_key returns None when the key file does not exist."""
+    from archon.cli.search_cmd import _read_api_key
+
+    assert _read_api_key(tmp_path / "nope.env") is None
+
+
+def test_read_api_key_no_matching_line_returns_none(tmp_path: Path) -> None:
+    """_read_api_key returns None when no line starts with ARCHON_SEARCH_API_KEY=."""
+    from archon.cli.search_cmd import _read_api_key
+
+    key_file = tmp_path / ".search.env"
+    key_file.write_text("# header comment\nOTHER_VAR=foo\n")
+    assert _read_api_key(key_file) is None
+
+
+def test_read_api_key_empty_value_returns_none(tmp_path: Path) -> None:
+    """_read_api_key returns None when the value is empty."""
+    from archon.cli.search_cmd import _read_api_key
+
+    key_file = tmp_path / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=\n")
+    assert _read_api_key(key_file) is None
+
+
+def test_read_api_key_first_match_wins(tmp_path: Path) -> None:
+    """_read_api_key returns the first ARCHON_SEARCH_API_KEY= line, ignoring later ones."""
+    from archon.cli.search_cmd import _read_api_key
+
+    key_file = tmp_path / ".search.env"
+    key_file.write_text("ARCHON_SEARCH_API_KEY=first\nARCHON_SEARCH_API_KEY=second\n")
+    assert _read_api_key(key_file) == "first"
