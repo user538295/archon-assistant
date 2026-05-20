@@ -453,7 +453,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 > **Releasable**: after Task 3.1, Archon can be released without `packages/archon-search/` in the repo. Task 4.1 closes the feature.
 
 #### Task 3.1 — Update root `pyproject.toml` to consume archon-search from PyPI
-- [ ] **File**: `pyproject.toml` (monorepo root)
+- [x] **File**: `pyproject.toml` (monorepo root)
 - **Depends on**: Task 2.6
 - **Description**:
   - In `[project] dependencies`, replace `archon-search = { path = "packages/archon-search" }` with `archon-search = ">=<first-published-version>"` where `<first-published-version>` is the CalVer string verified in Task 2.6 (e.g., `>=26.5.0`). Use `>=` (floor pin), not `~=` (compatible release). The `~=` specifier binds the upper bound to the same `YY.M` prefix, which would block updates every time the calendar month changes. `>=26.5.N` allows all future releases while preventing downgrades.

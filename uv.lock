@@ -287,7 +287,7 @@ requires-dist = [
     { name = "aiogram", specifier = ">=3.0" },
     { name = "aiohttp", specifier = ">=3.9" },
     { name = "anthropic", specifier = ">=0.40" },
-    { name = "archon-search", marker = "extra == 'search'", directory = "packages/archon-search" },
+    { name = "archon-search", marker = "extra == 'search'", specifier = ">=26.5.333" },
     { name = "chonkie", marker = "extra == 'search'", specifier = ">=0.5.0" },
     { name = "claude-agent-sdk", specifier = ">=0.1.46" },
     { name = "croniter", specifier = ">=6.0.0" },
@@ -311,7 +311,7 @@ provides-extras = ["search", "voice", "tokens"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "archon-search", directory = "packages/archon-search" },
+    { name = "archon-search", specifier = ">=26.5.333" },
     { name = "chonkie", specifier = ">=0.5.0" },
     { name = "docling", specifier = ">=2.80.0" },
     { name = "markitdown", specifier = ">=0.1.5" },
@@ -327,7 +327,8 @@ dev = [
 
 [[package]]
 name = "archon-search"
-source = { directory = "packages/archon-search" }
+version = "26.5.333"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chonkie" },
     { name = "claude-agent-sdk" },
@@ -342,28 +343,9 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "watchdog" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "chonkie", specifier = ">=0.5.0" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.46" },
-    { name = "click", specifier = ">=8.1" },
-    { name = "docling", specifier = ">=2.80.0" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "fastembed", specifier = ">=0.8.0" },
-    { name = "httpx", specifier = ">=0.25" },
-    { name = "lancedb", specifier = ">=0.30.0" },
-    { name = "pydantic", specifier = ">=2.0" },
-    { name = "tomlkit", specifier = ">=0.12" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-    { name = "watchdog", specifier = ">=3.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.23" },
-    { name = "pytest-cov", specifier = ">=5.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/ce/b9/9e6df32db50067bd62b1086047c356581e5fead37f19d231eaf98bda3f9e/archon_search-26.5.333.tar.gz", hash = "sha256:4ae084b8dbe7e5defce9466438ee416fb5fa1da6bfdc0218752bf7634438d425", size = 525918, upload-time = "2026-05-20T16:30:55.849Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/20/a1d905fa5cfbf2170f433408b1250f78e2909a2e7730630c57b34151a8d1/archon_search-26.5.333-py3-none-any.whl", hash = "sha256:14d7c945b13bf13a339942c657cae1c0b482dcc2966138d95a6628c4872255eb", size = 120390, upload-time = "2026-05-20T16:30:53.921Z" },
 ]
 
 [[package]]
