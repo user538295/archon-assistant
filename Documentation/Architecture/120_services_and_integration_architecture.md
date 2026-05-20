@@ -9,7 +9,7 @@
 ## Principles
 
 1. **Credentials live in `.env`, not in `config.toml`.** The bot token is the only secret; all other integration config (hosts, ports, modes) belongs in `config.toml`.
-2. **Optional integrations degrade gracefully.** Search, plugins, and the job scheduler are disabled by default. When unavailable, Archon logs a warning and continues without them.
+2. **Optional integrations degrade gracefully.** Plugins are disabled by default and the job scheduler ships disabled until jobs are registered. Search is **enabled by default** but degrades gracefully — when the `archon-search` service is unreachable, Archon logs a warning and continues without it.
 3. **The Gateway owns integration lifecycle.** It starts and stops every external connection in a defined order; no other module manages lifecycle.
 4. **The main session never blocks on sub-agent work.** All sub-agent execution happens asynchronously via the Archon MCP Server; the SDK's native `Task` tool is always disabled in orchestrator sessions.
 5. **All outbound messages use `parse_mode="HTML"`.** The `Bot` instance is created once with `DefaultBotProperties(parse_mode=ParseMode.HTML)`; every send operation inherits this default.
@@ -395,7 +395,7 @@ The `[background_agents] spawn_rule` config key injects a hint into the system p
 
 ### Overview
 
-The Search server is an optional FastMCP HTTP server that gives Claude access to semantic and keyword search over conversation history and user-defined document collections. It is disabled by default (`[search] enabled = false`).
+The Search server is a FastMCP HTTP server (the external [`archon-search`](https://pypi.org/project/archon-search/) PyPI package) that gives Claude access to semantic and keyword search over conversation history and user-defined document collections. It is **enabled by default** (`[search] enabled = true`) since FEAT-046 — `archon-search` ships as a transitive dependency of Archon, the installer registers and starts the service automatically, and the daemon launches with search active out of the box.
 
 **Direction**: Outbound (ClaudeSession → Search server via HTTP)
 
@@ -532,7 +532,7 @@ default = "claude-sonnet-4-6"       # optional model override for all sessions
 available = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
 [search]
-enabled = false                     # opt-in; requires Search server running (archon-search start)
+enabled = true                      # on by default; the installer starts archon-search automatically
 url = "http://127.0.0.1:8765"       # Search server base URL
 max_parallel_collections = 3        # max concurrent search operations
 top_k_return = 5                    # results returned after reranking

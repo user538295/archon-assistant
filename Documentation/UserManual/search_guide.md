@@ -10,7 +10,7 @@ Next review: 2026-06-28
 
 ## Overview
 
-Search (Retrieval-Augmented Generation) is an optional Archon feature that gives Claude persistent semantic and keyword search over your conversation history and any document collections you define. Once installed, Claude can use the `search` MCP tool to recall past conversations or look up information from your documents — entirely offline, without any cloud service.
+Search (Retrieval-Augmented Generation) is an Archon feature that gives Claude persistent semantic and keyword search over your conversation history and any document collections you define. The underlying service is the [`archon-search`](https://pypi.org/project/archon-search/) package — installed automatically as a dependency of Archon and **enabled by default** since FEAT-046. Once running, Claude can use the `search` MCP tool to recall past conversations or look up information from your documents — entirely offline, without any cloud service.
 
 **What Search enables:**
 

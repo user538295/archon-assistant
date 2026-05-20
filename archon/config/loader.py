@@ -92,7 +92,14 @@ class PluginsConfig:
 
 @dataclass
 class SearchConfig:
-    """Client-only search configuration. Server-side fields moved to archon-search.toml."""
+    """Client-only search configuration. Server-side fields moved to archon-search.toml.
+
+    Note on the `enabled` default: the dataclass default is `False` (conservative
+    fail-safe). For fresh Archon installs, the installer writes `enabled = true`
+    into the user's `config.toml` so search is on by default end-to-end. This
+    keeps tests that instantiate `SearchConfig()` directly from triggering the
+    30s wait-for-search-service loop in `gateway._wait_for_search_service()`.
+    """
     url: str = "http://127.0.0.1:8765"
     enabled: bool = False
     max_parallel_collections: int = 3

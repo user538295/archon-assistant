@@ -8,7 +8,7 @@
 
 ## Principles
 
-1. **Fully optional, zero-crash degradation.** Search is disabled by default. When the server is unreachable, Archon logs a warning and continues normally — no exceptions propagate to users.
+1. **Enabled by default, zero-crash degradation.** Search is enabled by default since FEAT-046 — `archon-search` is a transitive PyPI dependency installed unconditionally and the installer registers/starts the service on fresh installs. When the server is unreachable, Archon logs a warning and continues normally — no exceptions propagate to users.
 2. **Python-native, offline-first.** No Node.js, no cloud services. The entire stack (LanceDB + fastembed + Chonkie + FastAPI) runs locally via Python in the `archon-search` package.
 3. **Lazy model loading.** Embedding and reranking models are loaded on first use, not at server startup. This keeps startup fast and avoids loading models that may never be called.
 4. **Thread-safe ML backends.** fastembed models are not async-safe; all encoding and prediction runs via `asyncio.to_thread()` behind a double-checked lock.
@@ -915,7 +915,7 @@ See the [FEAT-039 plan](../Backlog/FEAT-039-search-evaluation-harness-plan-codex
 
 ## Telemetry (FEAT-039b)
 
-Opt-in local query telemetry is implemented in `packages/archon-search/archon_search/telemetry/`. It is disabled by default (`[telemetry] enabled = false` in `archon-search.toml`) and writes nothing unless explicitly enabled by the operator.
+Opt-in local query telemetry is implemented in the standalone `archon-search` package under `archon_search/telemetry/` (PyPI: <https://pypi.org/project/archon-search/>, repo: <https://github.com/user538295/archon-search>). It is disabled by default (`[telemetry] enabled = false` in `archon-search.toml`) and writes nothing unless explicitly enabled by the operator.
 
 **Module layout:**
 

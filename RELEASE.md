@@ -1,5 +1,16 @@
 # Release Notes
 
+## Unreleased
+
+**FEAT-046: Extract `archon-search` to its own repository + on-by-default search**
+
+- `archon-search` is now an independent package on PyPI: <https://pypi.org/project/archon-search/>. The standalone repository is <https://github.com/user538295/archon-search>. First release: `26.5.333`.
+- Archon consumes `archon-search` as a regular registry dependency (`archon-search>=26.5.333`). The `packages/archon-search/` subpackage, its workspace path override, and the disabled archon-search CI workflow stubs have been removed from the monorepo.
+- Search is **enabled by default** for every Archon install. The `[search]` extras block is gone; the dependency lives in main `[project] dependencies`. `install.py` no longer prompts to enable RAG on fresh installs — it auto-runs `archon search install`, sets `search.enabled = true`, and restarts. `--update` respects a prior `enabled = false` choice and does not silently re-enable.
+- `archon-search` defaults to `~/.archon-search/` for its config, key, DB, and logs. Archon injects `ARCHON_SEARCH_CONFIG=~/.archon/archon-search.toml` and `ARCHON_SEARCH_KEY_FILE=~/.archon/.search.env` when spawning the subprocess so existing installs keep their data at the legacy paths.
+- New automated release pipeline in the `archon-search` repo: push to `main` → eval gate → CalVer tag (`YY.M.<commit-count>`) → `hatch build` → PyPI publish via OIDC (no stored secrets).
+- Documentation updated across CLAUDE.md, `Documentation/Architecture/`, `Documentation/ADRs/09`, `Documentation/UserManual/search_guide.md`, `Documentation/990_documentation_index_*`, and `examples/config.toml.example`.
+
 ## v26.4.1014
 
 **FEAT-036: Classifier context injection + FIX-033: search db_path tilde expansion**

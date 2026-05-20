@@ -50,7 +50,7 @@ The `[qmd]` config section is replaced by `[search]` with no migration path (cle
 
 ```toml
 [search]
-enabled = false                     # opt-in; start with: archon search start
+enabled = true                      # on by default since FEAT-046; the installer starts the service automatically
 host = "localhost"
 port = 8282
 history_collection = "archon-history"

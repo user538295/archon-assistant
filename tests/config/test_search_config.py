@@ -76,7 +76,12 @@ def test_search_config_has_url_field() -> None:
 
 
 def test_search_config_has_enabled_field() -> None:
-    """SearchConfig has enabled field."""
+    """SearchConfig has enabled field; dataclass default is False (conservative
+    fail-safe so tests instantiating SearchConfig() directly do not trigger
+    the gateway's wait-for-service loop). For real installs the installer
+    writes `[search] enabled = true` into config.toml — see
+    examples/config.toml.example and install.py:_offer_search_setup().
+    """
     r = SearchConfig()
     assert r.enabled is False
 

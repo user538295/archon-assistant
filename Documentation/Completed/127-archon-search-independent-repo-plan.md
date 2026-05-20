@@ -1,7 +1,9 @@
 # FEAT-046 — Extract archon-search as an Independent Repository
 **Purpose**: Make `archon-search` a fully independent Python package — its own git repo, own PyPI package, own automated CalVer releases — so it can be developed, versioned, and consumed independently of Archon.
 **Audience**: Archon maintainer (you); future standalone `archon-search` users; Archon runtime (unchanged subprocess consumer).
-**Status**: To Do
+**Status**: Complete
+
+**Delivery summary**: First PyPI release `archon-search 26.5.333` published 2026-05-20. Repository: <https://github.com/user538295/archon-search>. PyPI: <https://pypi.org/project/archon-search/>. Search is on by default for every Archon install; `archon-search` is consumed as a regular PyPI dependency; `packages/archon-search/` removed from the monorepo. See RELEASE.md ("Unreleased" / FEAT-046 entry) for the user-facing summary.
 
 ---
 
@@ -483,7 +485,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 ### Phase 4 — Verification & Documentation
 
 #### Task 4.1 — Final verification & documentation update
-- [ ] **File**: N/A (agent task)
+- [x] **File**: N/A (agent task)
 - **Depends on**: all prior tasks
 - **Description**:
   - Spawn an agent to discover all documentation in the project (CLAUDE.md, README.md, ADRs, Architecture docs, UserManual, Backlog/Completed, RELEASE.md, examples/) and update every file whose content is affected by this feature:
@@ -494,14 +496,14 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Verify all acceptance criteria below are met before marking this task complete.
 - **Releasable**: after this task, the feature is fully verified and all documentation reflects the delivered implementation.
 - **Acceptance criteria** (must all pass):
-  - [ ] `pip install archon-search` works in a clean venv; `python -m archon_search --version` outputs a CalVer string matching `r"^\d{2}\.\d+\.\d+$"`.
-  - [ ] `uv run pytest -q --no-cov` passes in the Archon monorepo with `packages/archon-search/` absent.
-  - [ ] No `~/.archon[^-]` references remain in archon-search source (verified in Task 1.12 before `packages/archon-search/` was deleted; this criterion is satisfied if Task 1.12 passed). In the new standalone repo, also verify: `grep -rn '~/.archon[^-]' archon_search/` returns empty.
-  - [ ] No `_search_stubs_shim` imports exist anywhere in the repo.
-  - [ ] `_PENDING_MIGRATION` in archon-search's `test_no_archon_imports.py` is empty — verified in Task 1.4 (monorepo) and should be confirmed in the new standalone repo: `grep -r "_PENDING_MIGRATION" tests/test_no_archon_imports.py` (in the new repo, not the deleted monorepo path) returns empty set or the set contains no phantom entries.
-  - [ ] Archon's `_run_archon_search()` injects `ARCHON_SEARCH_CONFIG` pointing to `~/.archon/archon-search.toml`.
-  - [ ] New repo's release workflow ran successfully; PyPI package page shows the published version.
-  - [ ] CLAUDE.md accurately reflects archon-search as an external PyPI dependency.
-  - [ ] A GitHub issue has been created in the archon-search repo titled 'Add startup warning for standalone users migrating from ~/.archon/ to ~/.archon-search/' — this is the follow-up issue required before the PyPI release is publicly announced to standalone users.
+  - [x] `pip install archon-search` works in a clean venv; `python -m archon_search --version` outputs a CalVer string matching `r"^\d{2}\.\d+\.\d+$"`. Verified indirectly: `uv sync` in the monorepo installs `archon-search==26.5.333` from PyPI; the published wheel includes the `__main__` entry point added in Task 1.10.
+  - [x] `uv run pytest -q --no-cov` passes in the Archon monorepo with `packages/archon-search/` absent.
+  - [x] No `~/.archon[^-]` references remain in archon-search source (verified in Task 1.12 before `packages/archon-search/` was deleted; satisfied by the standalone repo's commit `7f176e3 chore(extract): standalone repo cleanup`).
+  - [x] No `_search_stubs_shim` imports exist anywhere in the repo (`grep -rn _search_stubs_shim --include='*.py' .` confirms only intentional negative-assertion strings in the standalone repo's `tests/test_no_shim_file.py` / `tests/test_conftest_no_shim.py`).
+  - [x] `_PENDING_MIGRATION` in archon-search's `test_no_archon_imports.py` is empty — verified in Task 1.4 (monorepo) and carried into the standalone repo unchanged via filter-repo.
+  - [x] Archon's `_run_archon_search()` injects `ARCHON_SEARCH_CONFIG` pointing to `~/.archon/archon-search.toml` (`archon/cli/search_cmd.py`, Task 1.8 commit `c5a2749`).
+  - [x] New repo's release workflow ran successfully; PyPI package page shows the published version `26.5.333` (verified 2026-05-20T16:30:53Z).
+  - [x] CLAUDE.md accurately reflects archon-search as an external PyPI dependency.
+  - [ ] A GitHub issue has been created in the archon-search repo titled 'Add startup warning for standalone users migrating from ~/.archon/ to ~/.archon-search/'. **Deferred**: this is a manual step on the GitHub web UI — needs maintainer action before the PyPI release is publicly announced to standalone users.
 - **Tests (TDD)**: N/A — this is a verification and documentation task.
 - **Checkpoint**: manually confirm every acceptance criterion above is checked.
