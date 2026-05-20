@@ -85,7 +85,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 > **Releasable**: after this phase is complete, CI is green on both `tests/` and `packages/archon-search/tests/`. The monorepo is in a clean state ready for extraction — no archon imports in the search package, no shim, paths updated, env var wired.
 
 #### Task 1.1 — Copy `_search_stubs.py` into archon-search package tests
-- [ ] **File**: `packages/archon-search/tests/_search_stubs.py` (new copy)
+- [x] **File**: `packages/archon-search/tests/_search_stubs.py` (new copy)
 - **Depends on**: Task 0.1
 - **Description**:
   - Copy `tests/_search_stubs.py` from the monorepo root into `packages/archon-search/tests/_search_stubs.py`.
