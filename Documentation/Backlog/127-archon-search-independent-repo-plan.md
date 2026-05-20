@@ -265,7 +265,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Additional checkpoint: `cd packages/archon-search && hatch build --clean` — this must succeed and produce a `.whl` file. If it fails with `ImportError` or `ModuleNotFoundError` for `_version_scheme`, the file placement or `sys.path` is wrong; move `_version_scheme.py` inside `archon_search/` and update `pyproject.toml` to use `archon_search._version_scheme:calver_total_count`.
 
 #### Task 1.11 — Update test assertions for new default paths
-- [ ] **File**: `packages/archon-search/tests/test_config.py`, `packages/archon-search/tests/test_job_store.py`, `packages/archon-search/tests/config/test_telemetry_config.py`, `packages/archon-search/tests/test_app.py`
+- [x] **File**: `packages/archon-search/tests/test_config.py`, `packages/archon-search/tests/test_job_store.py`, `packages/archon-search/tests/config/test_telemetry_config.py`, `packages/archon-search/tests/test_app.py`
 - **Depends on**: Tasks 1.5, 1.7
 - **Implementation approach**: Tasks 1.5, 1.7, and 1.11 are tightly coupled (changing defaults breaks test assertions). To comply with the commit-per-task rule while keeping CI green, implement them in order with a `# type: ignore` / skip marker in CI, OR (preferred) combine them into a single 'atomic' task. The implementer should merge the changes for (1.5 + 1.11-subset-for-config) and (1.7 + 1.11-subset-for-paths) into single implementations at the task boundary. When using `/implement-next`, treat '1.5+1.11-config-subset' as one implementation step and '1.7+1.11-path-subset' as another. The commit message should note both task IDs: e.g., `feat: rename default paths in config.py and update test assertions (Tasks 1.5 + 1.11 config-subset)`.
 - **Description**:
