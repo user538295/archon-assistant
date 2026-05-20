@@ -120,7 +120,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `uv run pytest packages/archon-search/tests/ -q --no-cov`
 
 #### Task 1.4 — Remove phantom `_PENDING_MIGRATION` entries
-- [ ] **File**: `packages/archon-search/tests/test_no_archon_imports.py`
+- [x] **File**: `packages/archon-search/tests/test_no_archon_imports.py`
 - **Depends on**: nothing (independent of stubs tasks)
 - **Description**:
   - In `test_no_archon_imports.py`, remove `"pipeline.py"` and `"mcp.py"` from `_PENDING_MIGRATION`. No actual import violations exist in those files — the entries are phantom exemptions.
