@@ -327,7 +327,6 @@ dev = [
 
 [[package]]
 name = "archon-search"
-version = "26.4.0"
 source = { directory = "packages/archon-search" }
 dependencies = [
     { name = "chonkie" },

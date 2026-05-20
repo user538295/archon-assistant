@@ -218,7 +218,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 - **Checkpoint**: `grep -r "~/.archon[^-]" packages/archon-search/archon-search.toml.example packages/archon-search/README.md` must return empty.
 
 #### Task 1.10 — Switch `pyproject.toml` to dynamic CalVer via hatch-vcs
-- [ ] **File**: `packages/archon-search/pyproject.toml`, `packages/archon-search/_version_scheme.py` (new), `packages/archon-search/archon_search/__main__.py` (new)
+- [x] **File**: `packages/archon-search/pyproject.toml`, `packages/archon-search/_version_scheme.py` (new), `packages/archon-search/archon_search/__main__.py` (new)
 - **Depends on**: nothing
 - **Description**:
   - **Pre-step (required for Task 2.6 CLI verification)**: Create `packages/archon-search/archon_search/__main__.py` with:
