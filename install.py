@@ -478,26 +478,20 @@ def _offer_search_setup(
     reinstall: bool = False,
     dry_run: bool = False,
 ) -> None:
-    """Interactively offer to set up RAG after a successful install.
+    """Set up the search service after a successful install.
 
-    When reinstall=True (update with search already enabled), skips the prompt but
-    still reinstalls search dependencies into the new venv.
-    When non_interactive=True and reinstall=False (fresh non-interactive install), skips entirely.
+    Search is on by default — the archon-search PyPI package is in main deps
+    and gets installed unconditionally. This function registers/starts the
+    search service and enables the feature flag in config.toml.
+
+    When reinstall=True (update with search already enabled), reinstalls the
+    service into the new venv without flipping the flag.
     When dry_run=True, prints what would be done without executing.
-    """
-    if non_interactive and not reinstall:
-        return
 
-    if not reinstall:
-        if dry_run:
-            console.info("[dry-run] Would offer to enable semantic search (RAG)")
-            return
-        try:
-            answer = console.ask("Enable semantic search (RAG)? [y/N]").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            return
-        if answer != "y":
-            return
+    The non_interactive parameter is retained for backward compatibility but no
+    longer gates anything — search setup is non-interactive in all cases.
+    """
+    del non_interactive  # no longer consulted; kept for ABI compatibility
 
     if dry_run:
         console.info("[dry-run] Would run: archon search install --non-interactive")
@@ -1325,9 +1319,8 @@ def main(argv: list[str] | None = None) -> None:
     write_config(
         archon_home, bot_token, user_ids, dry_run=args.dry_run, console=console
     )
+    # Search ships in main deps (always installed); only optional extras are listed here.
     _sync_extras: list[str] = []
-    if _search_already_enabled(archon_home):
-        _sync_extras.append("search")
     if _voice_already_enabled(archon_home):
         _sync_extras.append("voice")
     try:

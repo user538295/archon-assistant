@@ -2717,23 +2717,27 @@ class TestPostInstallRagGuidance:
         archon_bin.chmod(0o755)
         return paths
 
-    def test_interactive_install_prompts_for_rag(
+    def test_fresh_install_runs_search_setup_without_prompting(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """_offer_search_setup calls input() with a RAG-related prompt."""
+        """Search is on by default — _offer_search_setup must NOT call input() and
+        must run `archon search install` + `config set search.enabled true` +
+        `archon restart` on a fresh install regardless of the non_interactive flag.
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
         paths = self._make_paths(tmp_path)
         console = install.Console()
 
-        with patch("install.input", return_value="n") as mock_input, \
-             patch("install.subprocess.run"):
+        with patch("install.input") as mock_input, \
+             patch("install.subprocess.run", return_value=_subprocess_ok()) as mock_run:
             install._offer_search_setup(paths, console, non_interactive=False)
 
-        mock_input.assert_called_once()
-        prompt_text = mock_input.call_args[0][0]
-        assert "RAG" in prompt_text or "semantic" in prompt_text.lower(), (
-            f"Unexpected prompt: {prompt_text!r}"
-        )
+        mock_input.assert_not_called()
+        # The three setup commands must run for a fresh install.
+        cmd_strings = [" ".join(c) for c in (call.args[0] for call in mock_run.call_args_list)]
+        assert any("search" in s and "install" in s for s in cmd_strings)
+        assert any("config" in s and "search.enabled" in s for s in cmd_strings)
+        assert any("restart" in s for s in cmd_strings)
 
     def test_user_confirms_rag_runs_archon_commands(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2771,20 +2775,6 @@ class TestPostInstallRagGuidance:
             f"Command ordering violated: search={rag_idx}, config={cfg_idx}, restart={restart_idx}"
         )
 
-    def test_user_declines_rag_skips_commands(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Declining RAG skips the rag install, config set, and restart commands."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        paths = self._make_paths(tmp_path)
-        console = install.Console()
-
-        with patch("install.input", return_value="n"), \
-             patch("install.subprocess.run") as mock_run:
-            install._offer_search_setup(paths, console, non_interactive=False)
-
-        mock_run.assert_not_called()
-
     def test_offer_search_setup_prints_status_hint(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -2801,21 +2791,6 @@ class TestPostInstallRagGuidance:
         assert "Search enabled." in captured
         assert "archon search status" in captured
         assert "Indexing in background" in captured
-
-    def test_non_interactive_skips_rag_prompt(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """non_interactive=True without reinstall skips the RAG prompt entirely."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        paths = self._make_paths(tmp_path)
-        console = install.Console()
-
-        with patch("install.input") as mock_input, \
-             patch("install.subprocess.run") as mock_run:
-            install._offer_search_setup(paths, console, non_interactive=True)
-
-        mock_input.assert_not_called()
-        mock_run.assert_not_called()
 
     def test_reinstall_skips_prompt_and_runs_search_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3010,34 +2985,6 @@ class TestPostInstallRagGuidance:
         assert not any("restart" in s for s in cmd_strings), (
             f"restart should not be called after config set failure. calls={cmd_strings}"
         )
-
-    def test_eof_during_prompt_skips_rag(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """EOFError from input() (piped stdin / CI) is handled gracefully."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        paths = self._make_paths(tmp_path)
-        console = install.Console()
-
-        with patch("install.input", side_effect=EOFError), \
-             patch("install.subprocess.run") as mock_run:
-            install._offer_search_setup(paths, console, non_interactive=False)
-
-        mock_run.assert_not_called()
-
-    def test_keyboard_interrupt_during_prompt_skips_rag(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """KeyboardInterrupt from input() is handled gracefully."""
-        monkeypatch.setenv("HOME", str(tmp_path))
-        paths = self._make_paths(tmp_path)
-        console = install.Console()
-
-        with patch("install.input", side_effect=KeyboardInterrupt), \
-             patch("install.subprocess.run") as mock_run:
-            install._offer_search_setup(paths, console, non_interactive=False)
-
-        mock_run.assert_not_called()
 
     def test_search_install_invoked_with_non_interactive_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

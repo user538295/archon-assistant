@@ -18,18 +18,18 @@ dependencies = [
     "tomlkit>=0.12",
     "fastmcp>=3.1.1",
     "tiktoken>=0.12.0",
-]
-
-[project.optional-dependencies]
-search = [
+    # Search is on by default. The archon-search server + the ingestion-side
+    # helpers used by `archon search ingest` ship with every install; the
+    # `archon` CLI manages the search service via subprocess + REST.
     "archon-search>=26.5.333",
     "docling>=2.80.0",
     "markitdown>=0.1.5",
     "trafilatura>=1.8.0",
     "chonkie>=0.5.0",
-    "fastmcp>=3.1.0",
     "watchdog>=3.0",
 ]
+
+[project.optional-dependencies]
 voice = [
     "openai-whisper",
 ]
@@ -45,13 +45,6 @@ dev = [
     "mypy>=1.10",
     "tomli-w>=1.0",
     "numpy>=2.4.3",
-    # search extras — needed to run tests/search/ without --extra search
-    "archon-search>=26.5.333",
-    "chonkie>=0.5.0",
-    "docling>=2.80.0",
-    "markitdown>=0.1.5",
-    "trafilatura>=1.8.0",
-    "watchdog>=3.0",
 ]
 
 # CI runs two separate pytest invocations:
