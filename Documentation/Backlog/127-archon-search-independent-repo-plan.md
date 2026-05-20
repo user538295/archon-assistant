@@ -395,7 +395,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 - **Checkpoint**: open a test PR on the new repo; confirm `archon-search-pr.yml` triggers and passes.
 
 #### Task 2.4 — Configure PyPI OIDC trusted publisher
-- [ ] **File**: N/A (PyPI web configuration)
+- [x] **File**: N/A (PyPI web configuration)
 - **Depends on**: Task 2.2
 - **Description**:
   - On PyPI (`pypi.org`): go to the `archon-search` project page → Publishing → Add a new pending publisher.
@@ -407,7 +407,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 - **Checkpoint**: PyPI publishing settings show the pending trusted publisher for `archon-search-release.yml`.
 
 #### Task 2.5 — Add automated release workflow to new repo
-- [ ] **File**: `.github/workflows/archon-search-release.yml` (in new repo)
+- [x] **File**: `.github/workflows/archon-search-release.yml` (in new repo)
 - **Depends on**: Tasks 2.3, 2.4
 - **Description**:
   - The workflow triggers on push to `main` (with a `paths:` filter to skip README-only changes, or use `[skip release]` commit convention).
