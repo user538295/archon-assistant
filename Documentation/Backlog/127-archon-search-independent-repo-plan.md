@@ -382,7 +382,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
 - **Checkpoint**: `git -C /tmp/archon-search-extract log --oneline | head -10` matches the new repo's commit history on GitHub.
 
 #### Task 2.3 — Migrate and update CI workflow files
-- [ ] **File**: `.github/workflows/archon-search-pr.yml` and `.github/workflows/archon-search-release.yml` (in new repo); same files in monorepo (**disable** — rename to `.disabled`, delete in Task 3.2)
+- [x] **File**: `.github/workflows/archon-search-pr.yml` and `.github/workflows/archon-search-release.yml` (in new repo); same files in monorepo (**disable** — rename to `.disabled`, delete in Task 3.2)
 - **Depends on**: Task 2.2
 - **Description**:
   - Copy `.github/workflows/archon-search-pr.yml` and `archon-search-release.yml` from the monorepo to the new repo's `.github/workflows/` (the filter-repo did not preserve them — they live at the root `.github/` level, not under `packages/archon-search/`).
