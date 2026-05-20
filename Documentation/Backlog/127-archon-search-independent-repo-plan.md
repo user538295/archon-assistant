@@ -97,7 +97,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `python -c "import sys; sys.path.insert(0, 'packages/archon-search/tests'); from _search_stubs import install_stubs; print('ok')"` from monorepo root.
 
 #### Task 1.2 — Update `conftest.py` to import from copied stubs
-- [ ] **File**: `packages/archon-search/tests/conftest.py`
+- [x] **File**: `packages/archon-search/tests/conftest.py`
 - **Depends on**: Task 1.1
 - **Description**:
   - Replace the `from _search_stubs_shim import install_stubs` import (and any direct `_search_stubs_shim` usage) with `from _search_stubs import install_stubs`.
