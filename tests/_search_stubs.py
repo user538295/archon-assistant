@@ -1,4 +1,3 @@
-# Canonical copy is now packages/archon-search/tests/_search_stubs.py. This root copy will be removed in Phase 3.
 """Shared ML stub installer — patches sys.modules for fastembed before any test imports it.
 
 Must be called at conftest module-level (before pytest discovers any test file) so that

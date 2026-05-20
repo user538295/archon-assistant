@@ -466,7 +466,7 @@ After this feature: (1) `archon-search` has its own GitHub repo with full preser
   - Checkpoint: `grep archon-search uv.lock` — the entry must reference a PyPI URL (e.g., `https://files.pythonhosted.org/`) not a local path. If it still shows `path = 'packages/archon-search'`, the workspace sources entry was not fully removed — check `[tool.uv.workspace]` and `[tool.uv.sources]` in the root `pyproject.toml`.
 
 #### Task 3.2 — Remove `packages/archon-search/` from the monorepo
-- [ ] **File**: `packages/archon-search/` (delete entire directory)
+- [x] **File**: `packages/archon-search/` (delete entire directory)
 - **Depends on**: Task 3.1
 - **Description**:
   - Run `git rm -r packages/archon-search/` and commit in a single git commit with message `chore: remove archon-search subpackage (now published on PyPI)`.
