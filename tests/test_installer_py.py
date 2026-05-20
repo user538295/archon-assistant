@@ -703,10 +703,15 @@ class TestUpdateFlag:
         assert mock_offer.call_args.kwargs["non_interactive"] is False
         assert mock_offer.call_args.kwargs["reinstall"] is True
 
-    def test_update_without_rag_offers_rag(
+    def test_update_with_search_disabled_does_not_re_enable(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--update offers RAG setup when RAG is not yet enabled."""
+        """--update with search.enabled = false must NOT call _offer_search_setup.
+
+        Search-by-default applies to fresh installs only. If a user explicitly
+        disabled search before, an `--update` should respect that choice and
+        leave it disabled (no silent re-enable).
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
 
         archon_home = tmp_path / ".archon"
@@ -735,13 +740,14 @@ class TestUpdateFlag:
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
-        mock_offer.assert_called_once()
-        assert mock_offer.call_args.kwargs["non_interactive"] is False
+        mock_offer.assert_not_called()
 
-    def test_update_without_rag_section_offers_rag(
+    def test_update_without_search_section_does_not_enable(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--update offers RAG when config has no [rag] section (pre-RAG install)."""
+        """--update with no [search] section in config treats it as disabled and
+        does not call _offer_search_setup (no silent first-enable on update).
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
 
         archon_home = tmp_path / ".archon"
@@ -769,12 +775,12 @@ class TestUpdateFlag:
              patch("install.verify_running", return_value=True):
             install.main(["--update"])
 
-        mock_offer.assert_called_once()
+        mock_offer.assert_not_called()
 
-    def test_non_interactive_update_skips_rag(
+    def test_non_interactive_update_does_not_re_enable_disabled_search(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--non-interactive --update does not offer RAG even if RAG is not enabled."""
+        """--non-interactive --update with search disabled also skips setup (same guard)."""
         monkeypatch.setenv("HOME", str(tmp_path))
 
         archon_home = tmp_path / ".archon"
@@ -802,9 +808,7 @@ class TestUpdateFlag:
              patch("install.verify_running", return_value=True):
             install.main(["--non-interactive", "--update"])
 
-        # _offer_search_setup is called with non_interactive=True — it will skip the prompt
-        mock_offer.assert_called_once()
-        assert mock_offer.call_args.kwargs["non_interactive"] is True
+        mock_offer.assert_not_called()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2880,21 +2884,25 @@ class TestPostInstallRagGuidance:
         assert "[dry-run]" in captured
         assert "search install" in captured
 
-    def test_dry_run_offer_search_setup_interactive_prints_intent(
+    def test_dry_run_offer_search_setup_fresh_install_prints_all_three_intents(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """dry_run=True with reinstall=False (interactive path) prints the would-do action."""
+        """dry_run=True on a fresh install prints all three would-do actions
+        (search install, config set, restart) — not just the first one.
+        """
         monkeypatch.setenv("HOME", str(tmp_path))
         paths = self._make_paths(tmp_path)
         console = install.Console()
 
-        with patch("install.subprocess.run") as mock_run, \
-             patch("install.input"):
+        with patch("install.subprocess.run") as mock_run:
             install._offer_search_setup(paths, console, non_interactive=False, reinstall=False, dry_run=True)
 
         mock_run.assert_not_called()
         captured = capsys.readouterr().out
         assert "[dry-run]" in captured
+        assert "search install" in captured
+        assert "search.enabled" in captured
+        assert "restart" in captured
 
     def test_main_calls_offer_search_setup_on_fresh_install(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2927,6 +2935,7 @@ class TestPostInstallRagGuidance:
 
         mock_offer.assert_called_once()
         assert mock_offer.call_args.kwargs["non_interactive"] is False
+
 
     def test_rag_install_failure_skips_config_and_restart(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

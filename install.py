@@ -491,10 +491,15 @@ def _offer_search_setup(
     The non_interactive parameter is retained for backward compatibility but no
     longer gates anything — search setup is non-interactive in all cases.
     """
-    del non_interactive  # no longer consulted; kept for ABI compatibility
+    _ = non_interactive  # no longer consulted; kept for ABI compatibility
 
     if dry_run:
-        console.info("[dry-run] Would run: archon search install --non-interactive")
+        if reinstall:
+            console.info("[dry-run] Would run: archon search install --non-interactive")
+        else:
+            console.info("[dry-run] Would run: archon search install --non-interactive")
+            console.info("[dry-run] Would run: archon config set search.enabled true")
+            console.info("[dry-run] Would run: archon restart")
         return
 
     archon_bin = _get_archon_bin(paths)
@@ -1372,7 +1377,14 @@ def main(argv: list[str] | None = None) -> None:
         if not args.dry_run:
             console.success(f"Archon v{new_ver} is running!")
             _request_documents_permission(paths.app, console, args.dry_run)
-        _offer_search_setup(
+        # Search setup decision matrix:
+        #   - Fresh install (not --update):  auto-enable (reinstall=False path).
+        #   - Update + previously enabled:   reinstall service, keep flag (reinstall=True).
+        #   - Update + previously disabled:  respect prior choice — do not touch.
+        if args.update and not _search_already_enabled(archon_home):
+            pass  # user previously disabled search; do not silently re-enable on update
+        else:
+            _offer_search_setup(
                 paths,
                 console,
                 non_interactive=args.non_interactive,

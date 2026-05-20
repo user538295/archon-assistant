@@ -18,15 +18,12 @@ dependencies = [
     "tomlkit>=0.12",
     "fastmcp>=3.1.1",
     "tiktoken>=0.12.0",
-    # Search is on by default. The archon-search server + the ingestion-side
-    # helpers used by `archon search ingest` ship with every install; the
-    # `archon` CLI manages the search service via subprocess + REST.
+    # Search is on by default. archon-search transitively brings in docling,
+    # chonkie, watchdog (declared as its own deps). markitdown + trafilatura
+    # are Archon-side ingestion helpers that archon-search does not require.
     "archon-search>=26.5.333",
-    "docling>=2.80.0",
     "markitdown>=0.1.5",
     "trafilatura>=1.8.0",
-    "chonkie>=0.5.0",
-    "watchdog>=3.0",
 ]
 
 [project.optional-dependencies]
